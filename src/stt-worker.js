@@ -72,8 +72,54 @@ function load() {
   return asrPromise;
 }
 
+// Pista para Whisper con los nombres del equipo: se la damos como "lo dicho
+// antes" (<|startofprev|>) y así escribe JARVIS/KITT en vez de "Y Arvis" o
+// "¿Qué?". En forma de frases cortas, porque una lista suelta hace que con
+// ruido se invente la lista. Solo vale para audios de hasta 30 s (una ventana).
+const MAX_PROMPTED = 16000 * 30;
+let promptCache = null; // { key, init: number[] }
+
+function promptTokens(asr) {
+  const names = (config && config.names) || [];
+  if (!names.length) return null;
+  const key = names.join('|');
+  if (promptCache && promptCache.key === key) return promptCache.init;
+  const tk = asr.tokenizer;
+  const one = (t) => {
+    const ids = tk.encode(t, { add_special_tokens: false });
+    if (ids.length !== 1) throw new Error('token especial desconocido: ' + t);
+    return ids[0];
+  };
+  const GREET = ['Hola', 'Oye', 'Vale', 'Gracias', 'Venga'];
+  const text = ' ' + names.map((n, i) => `${GREET[i % GREET.length]} ${n}.`).join(' ');
+  const init = [
+    one('<|startofprev|>'),
+    ...tk.encode(text, { add_special_tokens: false }),
+    one('<|startoftranscript|>'), one('<|es|>'), one('<|transcribe|>'), one('<|notimestamps|>'),
+  ];
+  promptCache = { key, init };
+  return init;
+}
+
+async function transcribePrompted(asr, audio, init) {
+  const inputs = await asr.processor(audio);
+  const out = await asr.model.generate({
+    ...inputs,
+    decoder_input_ids: init,
+    max_new_tokens: 160,
+    no_repeat_ngram_size: 3, // evita bucles tipo "¿Qué tal? ¿Qué tal? …"
+  });
+  const seq = (out.tolist ? out.tolist()[0] : out[0]).map(Number).slice(init.length);
+  return asr.tokenizer.decode(seq, { skip_special_tokens: true }).trim();
+}
+
 async function transcribe(audio) {
   const asr = await load();
+  if (audio.length <= MAX_PROMPTED) {
+    let init = null;
+    try { init = promptTokens(asr); } catch (e) { console.warn('[voz] sin pista de nombres:', e && e.message); }
+    if (init) return transcribePrompted(asr, audio, init);
+  }
   const out = await asr(audio, {
     language: 'spanish',
     task: 'transcribe',
@@ -89,7 +135,7 @@ port.on('message', (e) => {
   if (!msg || !msg.type) return;
 
   if (msg.type === 'load') {
-    config = { model: msg.model, cacheDir: msg.cacheDir };
+    config = { model: msg.model, cacheDir: msg.cacheDir, names: Array.isArray(msg.names) ? msg.names.map(String) : [] };
     load().catch(() => { /* ya se avisó con status 'error' */ });
     return;
   }

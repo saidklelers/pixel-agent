@@ -623,7 +623,7 @@ async function micStop() {
     if (req !== micReq) return; // cancelado con Esc mientras esperábamos
     if (r && r.error) { hint('🎤 Error al transcribir: ' + r.error, true); return; }
     const text = String((r && r.text) || '').trim();
-    if (VC.isNoise(text)) { hint('🎤 No te he entendido. Prueba otra vez.', true); return; }
+    if (VC.isNoise(text, teamNames())) { hint('🎤 No te he entendido. Prueba otra vez.', true); return; }
     await runCommand(text, true);
   } catch (e) {
     if (req === micReq) hint('🎤 Error: ' + (e && e.message ? e.message : e), true);
@@ -745,7 +745,7 @@ async function handsSegment(audio) {
     if (!hands.on) return;
     if (r && r.error) { hint('👂 ' + r.error, true); return; }
     const text = String((r && r.text) || '').trim();
-    if (!text || VC.isNoise(text)) return;
+    if (!text || VC.isNoise(text, teamNames())) return;
     const cmd = VC.parseCommand(text, teamNames());
     const following = performance.now() < hands.followUntil;
     if (!isAddressed(cmd) && !following) {
@@ -903,6 +903,7 @@ if (api && api.onEvent) {
       case 'error':
         push(ev.id, 'error', ev.text || 'error');
         setStatus(ev.id, 'error');
+        if (ev.auth) hint('🔑 ' + ev.text, true);
         break;
       case 'closed':
         if (m.status === 'busy') setStatus(ev.id, 'live');
