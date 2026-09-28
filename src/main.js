@@ -468,9 +468,9 @@ function setupPermissions() {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1100,
-    height: 720,
-    minWidth: 720,
+    width: 1280,
+    height: 800,
+    minWidth: 900,
     minHeight: 480,
     title: 'Pixel Office',
     backgroundColor: '#16121f',
