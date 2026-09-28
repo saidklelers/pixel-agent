@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+    <title>Pixel Office</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="stageWrap">
+        <canvas id="stage"></canvas>
+      </div>
+      <aside id="chat">
+        <div class="chat-head">
+          <span class="chat-title">🛰️ Centro de mando</span>
+          <button id="newAgent" title="Nuevo agente">＋</button>
+        </div>
+        <div id="agentList" class="agent-list"></div>
+        <div id="convo" class="convo">
+          <div class="empty-convo">
+            Lanza un agente: escribe una tarea abajo, elige la carpeta y pulsa <b>＋ Agente</b>.
+            El agente aparecerá caminando a un escritorio.
+          </div>
+        </div>
+        <div class="composer">
+          <div class="targets">
+            <span id="targetInfo" class="target-info">Destino: nuevo agente</span>
+            <span class="target-actions">
+              <button id="selAll" class="mini">Todos</button>
+              <button id="selNone" class="mini">Ninguno</button>
+            </span>
+          </div>
+          <input id="agentName" class="cwd" spellcheck="false" placeholder="Nombre del agente" />
+          <input id="cwd" class="cwd" spellcheck="false" value="C:\Proyectos" />
+          <textarea id="msg" rows="3" placeholder="Escribe una orden para el agente…"></textarea>
+          <div class="composer-row">
+            <button id="spawnBtn" class="primary">＋ Agente</button>
+            <button id="sendBtn">Enviar</button>
+            <button id="stopBtn" class="danger" title="Detener agente">■</button>
+          </div>
+          <div id="hint" class="hint"></div>
+        </div>
+      </aside>
+    </div>
+    <script src="renderer.js"></script>
+    <script src="chat.js"></script>
+  </body>
+</html>
