@@ -27,6 +27,13 @@ test('dirigirse por nombre', () => {
   assert.deepEqual(p('Tars, Kitt: sincronizaos'), { type: 'send', to: ['TARS', 'KITT'], text: 'sincronizaos' });
 });
 
+test('nombre partido en dos palabras (Whisper)', () => {
+  assert.deepEqual(p('Y Arvis, revisa los testes del proyecto por favor.'), { type: 'send', to: ['JARVIS'], text: 'revisa los testes del proyecto por favor' });
+  assert.deepEqual(p('Fra idei, revisa el formulario'), { type: 'send', to: ['FRIDAY'], text: 'revisa el formulario' });
+  // una palabra normal detrás del nombre no se confunde con otro nombre
+  assert.deepEqual(p('Tars, revisa'), { type: 'send', to: ['TARS'], text: 'revisa' });
+});
+
 test('nombres con otra ortografía (Whisper)', () => {
   assert.deepEqual(p('Yarvis, planifica'), { type: 'send', to: ['JARVIS'], text: 'planifica' });
   assert.deepEqual(p('Fraidei, cambia los colores'), { type: 'send', to: ['FRIDAY'], text: 'cambia los colores' });
@@ -116,4 +123,31 @@ test('isNoise detecta alucinaciones típicas de Whisper', () => {
     assert.equal(isNoise(n), true, n);
   }
   for (const ok of ['Jarvis, revisa los tests', 'para', 'Gracias, Jarvis']) assert.equal(isNoise(ok), false, ok);
+});
+
+// Con los nombres y alias reales del equipo (src/team.js)
+const { TEAM } = require('../src/team.js');
+const REAL = TEAM.map((m) => ({ name: m.name, aliases: m.aliases }));
+const pr = (t) => parseCommand(t, REAL);
+
+test('nombre con una letra de diferencia, solo si va seguido de pausa', () => {
+  assert.deepEqual(pr('Y albiz'), { type: 'select', to: ['JARVIS'] });
+  assert.deepEqual(pr('Y albiz, revisa los tests'), { type: 'send', to: ['JARVIS'], text: 'revisa los tests' });
+  assert.deepEqual(pr('Yarvi.'), { type: 'select', to: ['JARVIS'] });
+  assert.deepEqual(pr('FRAIDAY, arregla el botón'), { type: 'send', to: ['FRIDAY'], text: 'arregla el botón' });
+  // palabras normales que se parecen a un nombre no cuentan
+  assert.equal(pr('Tareas pendientes: revisa el login').to, null);
+  assert.equal(pr('Edita el archivo README').to, null);
+  assert.equal(pr('Tarta de manzana').to, null);
+});
+
+test('«parem» (como lo escribe Whisper) interrumpe', () => {
+  assert.deepEqual(pr('Todos, parem.'), { type: 'interrupt', to: 'all' });
+});
+
+test('isNoise: bucles y listas sueltas de nombres', () => {
+  assert.equal(isNoise('TARO, LOS LOS LOS LOS LOS LOS'), true);
+  assert.equal(isNoise('JARVIS, FRIDAY, TARS, EDITH,', REAL), true);
+  assert.equal(isNoise('JARVIS, FRIDAY y TARS, revisad el login', REAL), false);
+  assert.equal(isNoise('Friday y Edith', REAL), false);
 });

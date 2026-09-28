@@ -152,6 +152,11 @@ function publicMember(m) {
   };
 }
 
+const AUTH_ERROR = /not logged in|please run \/login|invalid api key|oauth token (?:has )?expired|authentication_error/i;
+const AUTH_HELP = 'Claude Code no tiene la sesión iniciada en este PC, así que el equipo no puede trabajar. ' +
+  'Abre una terminal (PowerShell), escribe «claude», pulsa Enter y luego escribe «/login» para iniciar sesión con tu cuenta. ' +
+  'Cuando termine, vuelve aquí y repite la orden.';
+
 function handleSdkMessage(id, m) {
   if (!m || !m.type) return;
   const l = live.get(id);
@@ -175,6 +180,14 @@ function handleSdkMessage(id, m) {
       }
       if (texts.length) {
         const text = texts.join('\n');
+        // Sin sesión de Claude Code, el SDK responde con un texto en inglés
+        // como si fuera el agente. Lo convertimos en un aviso claro (y así
+        // tampoco se lee en voz alta).
+        if (AUTH_ERROR.test(text) && text.length < 200) {
+          setState(id, 'idle', 'sin sesión');
+          sendAgentEvent({ id, kind: 'error', auth: true, text: AUTH_HELP });
+          return;
+        }
         setState(id, 'talking', null, text);
         sendAgentEvent({ id, kind: 'assistant', text, training: !!(l && l.training) });
       }
@@ -220,10 +233,8 @@ async function ensureRunning(id) {
         delete rec.sessions[cwd];
         saveStore();
       }
-      const help = /exited with code|not logged in|authenticat|login/i.test(msg)
-        ? ' — ¿Claude Code tiene sesión iniciada? Abre una terminal, ejecuta «claude» una vez e inicia sesión.'
-        : '';
-      if (!abort.signal.aborted) sendAgentEvent({ id, kind: 'error', text: msg + help });
+      const auth = AUTH_ERROR.test(msg) || /exited with code|authenticat|login/i.test(msg);
+      if (!abort.signal.aborted) sendAgentEvent({ id, kind: 'error', auth, text: auth ? msg + ' — ' + AUTH_HELP : msg });
     } finally {
       if (l.q === q) {
         Object.assign(l, { q: null, input: null, abort: null, busy: false });
@@ -432,6 +443,7 @@ function loadModel(s) {
     type: 'load',
     model: s.model,
     cacheDir: path.join(app.getPath('userData'), 'modelos-voz'),
+    names: TEAM.map((m) => m.name), // pista para que Whisper escriba bien los nombres
   });
 }
 

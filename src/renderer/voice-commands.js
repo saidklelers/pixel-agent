@@ -50,7 +50,7 @@
 
   const FILLERS = /^(?:oye|oiga|oigan|hey|eh|ey|hola|vale|bueno|venga|a ver|ok|okay|escucha|escuchad)\b[\s,.:;!¡]*/;
   const POLITE = /(?:[\s,]+(?:por favor|porfa|ya|ahora|ahora mismo|un momento|un segundo|de momento|gracias|inmediatamente|enseguida))+$/;
-  const INTERRUPT = '(?:para|paren|parad|parate|pare|detente|deteneos|detenganse|deten|alto|basta|stop|espera|esperad|esperen|quieto|quietos|quieta|frena|frenad|pausa|cancela|cancelad)';
+  const INTERRUPT = '(?:para|paren|parem|parad|parate|pare|detente|deteneos|detenganse|deten|alto|basta|stop|espera|esperad|esperen|quieto|quietos|quieta|frena|frenad|pausa|cancela|cancelad)';
   // Reiniciar (olvidar la conversación) solo con verbo inequívoco y SIEMPRE con
   // nombre ("reinicia a TARS"). "Reinicia el servidor" es una tarea normal.
   const KILL = '(?:reinicia|reiniciad|reinicialo|reiniciala|reiniciate|resetea|reseteala|resetealo|reseteate)';
@@ -61,6 +61,16 @@
 
   function trimPunct(s) {
     return String(s || '').replace(/^[\s,.:;!?¡¿…\-–—"'«»]+|[\s,.:;!?¡¿…\-–—"'«»]+$/g, '');
+  }
+
+  // ¿a y b se diferencian como mucho en una letra (cambiada, sobrante o que falta)?
+  function withinOne(a, b) {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 1) return false;
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1);
+    return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
   }
 
   // Intenta leer uno o varios nombres ("Ana", "Ana y Beto", "a Leo") al
@@ -92,12 +102,30 @@
       words.push({ text: m[0], end: m.index + m[0].length });
     }
 
+    // Whisper a veces parte el nombre en dos palabras ("Y Arvis" por
+    // "Jarvis"): probamos también juntando una palabra más. Primero se busca
+    // la coincidencia exacta; si no hay, se tolera una letra de diferencia
+    // ("Y albiz"), pero solo en nombres largos y seguidos de una pausa (como
+    // cuando llamas a alguien), para no confundir "Tareas: …" con TARS.
     let hit = null;
-    for (const cand of list) {
-      const k = cand.words.length;
-      if (words.length < k) continue;
-      const said = phonKey(words.slice(0, k).map((w) => w.text).join(' '));
-      if (said && said === phonKey(cand.words.join(' '))) { hit = { name: cand.name, end: words[k - 1].end }; break; }
+    for (const fuzzy of [false, true]) {
+      for (const cand of list) {
+        const k = cand.words.length;
+        const target = phonKey(cand.words.join(' '));
+        if (fuzzy && target.length < 5) continue;
+        for (const span of [k, k + 1]) {
+          if (words.length < span) continue;
+          const said = phonKey(words.slice(0, span).map((w) => w.text).join(' '));
+          if (!said) continue;
+          const end = words[span - 1].end;
+          const ok = fuzzy
+            ? said.length >= 5 && /^\s*(?:[,.:;!?…]|$)/.test(f.slice(end)) && withinOne(said, target)
+            : said === target;
+          if (ok) { hit = { name: cand.name, end }; break; }
+        }
+        if (hit) break;
+      }
+      if (hit) break;
     }
     if (!hit) return null;
 
@@ -217,8 +245,10 @@
     return s.trim();
   }
 
-  // Frases que Whisper "alucina" con silencio o ruido de fondo.
-  function isNoise(text) {
+  // Frases que Whisper "alucina" con silencio o ruido de fondo. `names`
+  // (opcional, como en parseCommand) permite descartar también una lista
+  // suelta de nombres del equipo, que es lo que sale al darle la pista.
+  function isNoise(text, names) {
     const f = fold(trimPunct(text)).replace(/\s+/g, ' ');
     if (!f) return true;
     if (/^[\[(].*[\])]$/.test(f)) return true; // [musica], (risas), [BLANK_AUDIO]
@@ -226,6 +256,13 @@
     if (/amara\.org|subtitulos (?:realizados|por)|subtitulado por|suscribete|gracias por ver(?: el video)?$|^musica$/.test(f)) return true;
     // "Gracias." suelto es la alucinación más típica con silencio
     if (/^(?:muchas )?gracias$/.test(f)) return true;
+    // Bucles: la misma palabra 4 veces o más seguidas ("los los los los")
+    if (/\b(\S+)(?:[\s,.;:!?¿¡]+\1\b){3,}/.test(f)) return true;
+    // Solo nombres del equipo (3 o más) y nada más: "JARVIS, FRIDAY, TARS…"
+    if (names && names.length) {
+      const r = readNames(f, names);
+      if (r && r.names.length >= 3 && !trimPunct(f.slice(r.end))) return true;
+    }
     return false;
   }
 

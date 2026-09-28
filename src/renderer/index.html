@@ -21,6 +21,7 @@
             </div>
           </div>
           <div class="head-actions">
+            <button id="handsBtn" class="icon-btn off" title="Manos libres: el micro escucha siempre y reconoce a quién le hablas por su nombre">👂</button>
             <button id="ttsBtn" class="icon-btn" title="Leer las respuestas en voz alta">🔊</button>
             <button id="skipBtn" class="icon-btn" title="Callar al equipo (Esc)">⏹</button>
           </div>
@@ -43,6 +44,10 @@
             <label class="field grow" title="Carpeta del proyecto en el que trabaja el equipo">
               <span class="field-icon">📁</span>
               <input id="cwd" spellcheck="false" placeholder="Carpeta del proyecto" />
+            </label>
+            <label id="micField" class="field" title="Micrófono con el que hablas al equipo">
+              <span class="field-icon">🎙️</span>
+              <select id="micSelect"><option value="">Micrófono de Windows</option></select>
             </label>
           </div>
           <textarea id="msg" rows="3" placeholder="Escribe una orden… o mantén 🎤 / Ctrl+Espacio y habla"></textarea>
@@ -75,6 +80,7 @@
           <details class="voice-help">
             <summary>🎙️ ¿Qué puedo decir?</summary>
             <ul>
+              <li><b>👂 Manos libres</b> — sin pulsar nada: di el nombre y habla («JARVIS, planifica el login»). Durante unos segundos puedes seguir sin repetirlo; lo que no empieza por un nombre se ignora.</li>
               <li><b>«JARVIS, planifica el login»</b> — habla con uno (sin nombre va al destino)</li>
               <li><b>«FRIDAY y EDITH: revisad el formulario»</b> — a varios</li>
               <li><b>«Todos, actualizad la rama»</b> — a todo el equipo</li>

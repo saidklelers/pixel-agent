@@ -419,6 +419,87 @@ let voicePrepared = false;
 let voiceStatusTimer = 0;
 
 function setMicUi(state) { micBtn.dataset.state = state; }
+
+// ---- Voz: elegir micrófono -------------------------------------------------
+// Windows puede tener de predeterminado un micro mudo (el del portátil
+// silenciado, uno virtual de Steam…) aunque hables por los auriculares. Aquí
+// eliges cuál usar y se recuerda.
+
+const micSelect = el('micSelect');
+const micField = el('micField');
+const MIC_KEY = 'pixel.voz.micro';
+let micPref = '';
+try { micPref = localStorage.getItem(MIC_KEY) || ''; } catch (_) { /* noop */ }
+
+function saveMicPref(id) {
+  micPref = id || '';
+  try { localStorage.setItem(MIC_KEY, micPref); } catch (_) { /* noop */ }
+}
+
+function micLabelOf(id) {
+  const o = [...micSelect.options].find((x) => x.value === id);
+  return o ? o.textContent : '';
+}
+
+async function refreshMics() {
+  if (!PV || !PV.mics) return;
+  try {
+    const [list, defLabel] = await Promise.all([PV.mics.list(), PV.mics.defaultLabel()]);
+    micSelect.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = '';
+    def.textContent = defLabel ? `Windows: ${defLabel}` : 'Micrófono de Windows';
+    micSelect.appendChild(def);
+    for (const m of list) {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.label;
+      micSelect.appendChild(o);
+    }
+    // Si el elegido no está conectado ahora, usamos el de Windows sin
+    // olvidar la preferencia (volverá al reconectarlo).
+    micSelect.value = list.some((m) => m.id === micPref) ? micPref : '';
+    micField.title = 'Micrófono con el que hablas al equipo: ' + micSelect.options[micSelect.selectedIndex].textContent;
+  } catch (e) {
+    console.warn('voz: no se pudieron listar los micros:', e && e.message ? e.message : e);
+  }
+}
+
+function nudgeMicField() {
+  micField.classList.remove('nudge');
+  void micField.offsetWidth; // reinicia la animación
+  micField.classList.add('nudge');
+  setTimeout(() => micField.classList.remove('nudge'), 3000);
+}
+
+// La grabación salió en silencio digital: ese micro está mudo. Buscamos otro
+// que sí capte sonido y, si lo hay, lo elegimos. Devuelve su nombre o ''.
+async function findLiveMic(deadLabel) {
+  if (!PV || !PV.mics) return '';
+  let list = [];
+  try { list = await PV.mics.list(); } catch (_) { return ''; }
+  for (const m of list) {
+    if (m.label === deadLabel) continue;
+    try {
+      const rms = await PV.mics.probe(m.id, 2000, 0.0005);
+      if (rms > 0.0005) {
+        saveMicPref(m.id);
+        await refreshMics();
+        return m.label;
+      }
+    } catch (_) { /* ese micro no se puede abrir; seguimos */ }
+  }
+  return '';
+}
+
+micSelect.addEventListener('change', () => {
+  saveMicPref(micSelect.value);
+  micField.title = 'Micrófono con el que hablas al equipo: ' + micLabelOf(micSelect.value);
+  hint(`🎙️ Micrófono: ${micLabelOf(micSelect.value)}. Mantén 🎤 y habla: el anillo se mueve si te oye.`);
+  if (hands.on) startHands(); // manos libres pasa a escuchar por el nuevo micro
+});
+if (navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', refreshMics);
+refreshMics();
 // Nivel del micro (0..1). En modo clic, al detectar que has hablado y luego
 // hay ~1,4 s de silencio, se envía solo.
 const vad = { heard: false, lastLoud: 0 };
@@ -482,12 +563,22 @@ async function micStart(mode) {
   PV.speaker.stopAll();
   PV.speaker.hold(true);
   prepareVoice();
-  setMicUi('listening');
-  hint(mode === 'key' ? '🎤 Escuchando… suelta Ctrl+Espacio para enviar (Esc cancela)' : '🎤 Escuchando… suelta para enviar (Esc cancela)');
+  // Unos auriculares Bluetooth tardan ~2 s en pasar a modo micrófono: hasta
+  // que no esté abierto no decimos "Escuchando" (lo dicho antes se perdería).
+  setMicUi('busy');
+  hint('🎤 Abriendo micrófono… espera a «Escuchando»');
   clearTimeout(micTimer);
   micTimer = setTimeout(() => { if (micMode) { hint('🎤 Máximo 2 minutos por mensaje.'); micStop(); } }, MIC_MAX_MS);
   try {
-    const ok = await PV.recorder.start(setLevel);
+    const ok = await PV.recorder.start(setLevel, micSelect.value || null);
+    // Tras el primer permiso ya se ven los nombres reales de los micros.
+    if (ok && micSelect.options.length < 2) refreshMics();
+    if (ok && micMode) {
+      setMicUi('listening');
+      hint(micMode === 'key' ? '🎤 Escuchando… suelta Ctrl+Espacio para enviar (Esc cancela)'
+        : micMode === 'toggle' ? '🎤 Escuchando… habla y se enviará al callarte (o pulsa 🎤 otra vez). Esc cancela.'
+          : '🎤 Escuchando… suelta para enviar (Esc cancela)');
+    }
     // No se abrió y nadie lo paró por el camino: volvemos a reposo.
     if (!ok && micMode === mode) micReset();
   } catch (e) {
@@ -515,14 +606,26 @@ async function micStop() {
     if (req !== micReq) return;
     if (!res) { hint(''); return; }
     if (res.seconds < 0.35) { hint('🎤 Muy corto: mantén pulsado mientras hablas.', true); return; }
-    if (res.rms < 0.0015) { hint('🎤 No te he oído (¿micro silenciado?).', true); return; }
+    if (res.rms < 0.0015) {
+      const dead = PV.recorder.lastLabel();
+      // Silencio digital (~0): ese micro está mudo o desactivado.
+      if (res.rms < 0.0002) {
+        hint(`🎤 El micrófono «${dead || 'de Windows'}» no da ninguna señal. Buscando otro…`, true);
+        const live = await findLiveMic(dead);
+        if (req !== micReq) return;
+        if (live) { hint(`🎙️ He cambiado al micrófono «${live}». Vuelve a hablar.`); nudgeMicField(); return; }
+      }
+      hint(`🎤 No te he oído con «${dead || 'el micrófono de Windows'}». Elige otro en 🎙️ o sube su volumen.`, true);
+      nudgeMicField();
+      return;
+    }
 
     hint('✍️ Transcribiendo… (Esc cancela)');
     const r = await voiceIpc.transcribe(res.audio, sttQuality());
     if (req !== micReq) return; // cancelado con Esc mientras esperábamos
     if (r && r.error) { hint('🎤 Error al transcribir: ' + r.error, true); return; }
     const text = String((r && r.text) || '').trim();
-    if (VC.isNoise(text)) { hint('🎤 No te he entendido. Prueba otra vez.', true); return; }
+    if (VC.isNoise(text, teamNames())) { hint('🎤 No te he entendido. Prueba otra vez.', true); return; }
     await runCommand(text, true);
   } catch (e) {
     if (req === micReq) hint('🎤 Error: ' + (e && e.message ? e.message : e), true);
@@ -566,7 +669,8 @@ micBtn.addEventListener('pointerup', () => {
   // Clic corto: sigue grabando hasta el siguiente clic.
   if (performance.now() - micPressAt < 350) {
     micMode = 'toggle';
-    hint('🎤 Escuchando… habla y se enviará al callarte (o pulsa 🎤 otra vez). Esc cancela.');
+    // Si aún se está abriendo, micStart pone este aviso al terminar.
+    if (micBtn.dataset.state === 'listening') hint('🎤 Escuchando… habla y se enviará al callarte (o pulsa 🎤 otra vez). Esc cancela.');
     return;
   }
   micStop();
@@ -609,6 +713,144 @@ if (PV) {
     hint(ttsModeEl.value === 'natural' ? '🔊 Voces naturales (cada miembro con la suya).' : '🔊 Voces del sistema.');
   });
   PV.speaker.onNotice((text) => hint(text, true));
+}
+
+// ---- Voz: manos libres -------------------------------------------------------
+// El micro queda abierto: di un nombre ("JARVIS, revisa…", "EDITH") y la app
+// sabe con quién hablas. Durante FOLLOW_MS puedes seguir sin repetirlo; lo
+// que no va dirigido a nadie se ignora. La voz del propio equipo (altavoces)
+// no cuenta como orden.
+
+const handsBtn = el('handsBtn');
+const HANDS_KEY = 'pixel.voz.manoslibres';
+const FOLLOW_MS = 15000;
+const hands = { on: false, hearing: false, pending: 0, speechAt: 0, ttsStartAt: 0, ttsEndAt: 0, followUntil: 0, deadTried: false };
+
+function teamNames() { return [...team.values()].map((m) => ({ name: m.name, aliases: m.aliases })); }
+
+function renderHandsBtn() {
+  handsBtn.classList.toggle('live', hands.on);
+  handsBtn.classList.toggle('off', !hands.on);
+  handsBtn.classList.toggle('hearing', hands.on && (hands.hearing || hands.pending > 0));
+  handsBtn.title = hands.on
+    ? 'Manos libres activado: di un nombre y habla (clic para desactivar)'
+    : 'Manos libres: el micro escucha siempre y reconoce a quién le hablas por su nombre';
+}
+
+function saveHands(on) {
+  try { localStorage.setItem(HANDS_KEY, on ? '1' : '0'); } catch (_) { /* noop */ }
+}
+
+// ¿La frase empieza nombrando a alguien (o es "silencio")?
+function isAddressed(cmd) { return cmd.to != null || cmd.type === 'silence'; }
+
+// A quién hablas pasa a ser quien has nombrado: así las frases siguientes
+// (sin nombre) le llegan a él o ellos.
+function focusAddressed(cmd) {
+  if (!cmd.to || cmd.type === 'interrupt' || cmd.type === 'reset') return;
+  const ids = cmd.to === 'all' ? [...team.keys()]
+    : cmd.to.map((n) => [...team.values()].find((m) => m.name === n)).filter(Boolean).map((m) => m.id);
+  if (!ids.length) return;
+  selected.clear();
+  if (ids.length === 1) activeId = ids[0]; else ids.forEach((id) => selected.add(id));
+  renderTeam();
+  renderConvo();
+}
+
+async function handsSegment(audio) {
+  if (!hands.on || micMode || micBusy) return; // estás usando 🎤: manda él
+  // Si el equipo estaba hablando, lo oído es (o incluye) su voz: se descarta.
+  if (PV.speaker.speakingKey() || hands.speechAt < hands.ttsEndAt + 400) return;
+  hands.pending += 1;
+  renderHandsBtn();
+  try {
+    const r = await voiceIpc.transcribe(audio, sttQuality());
+    if (!hands.on) return;
+    if (r && r.error) { hint('👂 ' + r.error, true); return; }
+    const text = String((r && r.text) || '').trim();
+    if (!text || VC.isNoise(text, teamNames())) return;
+    const cmd = VC.parseCommand(text, teamNames());
+    const following = performance.now() < hands.followUntil;
+    if (!isAddressed(cmd) && !following) {
+      hint(`👂 «${text.length > 60 ? text.slice(0, 59) + '…' : text}» — sin nombre, lo ignoro. Empieza por «JARVIS, …» o «Todos, …».`);
+      return;
+    }
+    hands.followUntil = performance.now() + FOLLOW_MS;
+    focusAddressed(cmd);
+    await runCommand(text, true);
+  } catch (e) {
+    hint('👂 Error: ' + (e && e.message ? e.message : e), true);
+  } finally {
+    hands.pending -= 1;
+    renderHandsBtn();
+  }
+}
+
+async function startHands() {
+  if (!voiceIpc || !PV || !PV.listener || !VC) { hint('La voz no está disponible en esta versión.', true); return; }
+  hands.on = true;
+  renderHandsBtn();
+  prepareVoice();
+  hint('👂 Abriendo micrófono…');
+  try {
+    const label = await PV.listener.start(micSelect.value || null, {
+      onSegment: handsSegment,
+      onSpeech: (on) => {
+        hands.hearing = on;
+        if (on) hands.speechAt = performance.now();
+        renderHandsBtn();
+      },
+      onDead: async (dead) => {
+        // Micro mudo: probamos a cambiar a uno que sí capte sonido (una vez).
+        if (hands.deadTried) {
+          hint(`👂 El micrófono «${dead}» no da señal. Elige otro en 🎙️.`, true);
+          nudgeMicField();
+          return;
+        }
+        hands.deadTried = true;
+        hint(`👂 El micrófono «${dead}» no da ninguna señal. Buscando otro…`, true);
+        PV.listener.stop();
+        const live = await findLiveMic(dead);
+        if (!hands.on) return;
+        if (live) nudgeMicField();
+        startHands();
+      },
+      onEnded: () => { if (hands.on) { hint('👂 Se desconectó el micrófono; vuelvo a abrirlo…', true); startHands(); } },
+    });
+    if (label === null || !hands.on) return; // se desactivó mientras abría
+    if (micSelect.options.length < 2) refreshMics();
+    hint(`👂 Manos libres (${label || 'micrófono de Windows'}): di un nombre — «JARVIS, revisa los tests» — y sigue hablando sin repetirlo.`);
+  } catch (e) {
+    hands.on = false;
+    renderHandsBtn();
+    hint(micErrorText(e), true);
+  }
+}
+
+function stopHands() {
+  hands.on = false;
+  hands.hearing = false;
+  hands.followUntil = 0;
+  if (PV && PV.listener) PV.listener.stop();
+  renderHandsBtn();
+}
+
+handsBtn.addEventListener('click', () => {
+  if (hands.on) { stopHands(); saveHands(false); hint('👂 Manos libres desactivado.'); return; }
+  hands.deadTried = false;
+  saveHands(true);
+  startHands();
+});
+
+if (PV) {
+  PV.speaker.onChange((key) => {
+    const now = performance.now();
+    if (key) { hands.ttsStartAt = now; return; }
+    // Terminó de hablar el equipo. Si estabas en conversación con alguien,
+    // tienes otro rato para contestarle sin repetir su nombre.
+    hands.ttsEndAt = now;
+    if (hands.followUntil > hands.ttsStartAt) hands.followUntil = Math.max(hands.followUntil, now + FOLLOW_MS);
+  });
 }
 
 // ---- Voz: respuestas habladas ----------------------------------------------
@@ -684,6 +926,7 @@ if (api && api.onEvent) {
       case 'error':
         push(ev.id, 'error', ev.text || 'error');
         setStatus(ev.id, 'error');
+        if (ev.auth) hint('🔑 ' + ev.text, true);
         break;
       case 'closed':
         if (m.status === 'busy') setStatus(ev.id, 'live');
@@ -693,7 +936,11 @@ if (api && api.onEvent) {
 }
 
 renderTtsBtn();
+renderHandsBtn();
 refreshTeam().then(() => {
   hint('🎯 Habla con JARVIS o di el nombre de otro miembro del equipo.');
+  let handsSaved = false;
+  try { handsSaved = localStorage.getItem(HANDS_KEY) === '1'; } catch (_) { /* noop */ }
+  if (handsSaved) startHands();
   console.log('CHAT-INIT ok; equipo=' + team.size + ' voz=' + !!(voiceIpc && PV && VC));
 }).catch((e) => hint('No se pudo cargar el equipo: ' + (e && e.message), true));
