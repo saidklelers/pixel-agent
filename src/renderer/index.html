@@ -56,6 +56,22 @@
             <button id="stopBtn" class="danger" title="Interrumpir al destino">■</button>
           </div>
           <div id="hint" class="hint"></div>
+          <div class="voice-settings">
+            <label title="Whisper small entiende mucho mejor el español (descarga ~500 MB la primera vez); base es más ligero y rápido">
+              🎙️ Te entiendo:
+              <select id="sttQuality">
+                <option value="precisa">Preciso</option>
+                <option value="rapida">Rápido</option>
+              </select>
+            </label>
+            <label title="Voces naturales: neuronales de Microsoft, suenan como personas (necesitan internet). Del sistema: las de Windows, sin internet.">
+              🔊 Voces:
+              <select id="ttsMode">
+                <option value="natural">Naturales</option>
+                <option value="sistema">Del sistema</option>
+              </select>
+            </label>
+          </div>
           <details class="voice-help">
             <summary>🎙️ ¿Qué puedo decir?</summary>
             <ul>

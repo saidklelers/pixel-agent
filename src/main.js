@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { TEAM, systemPromptFor, trainingPrompt, extractKnowledge } = require('./team');
+const { synthesize } = require('./tts');
 
 const SNAPSHOT_MS = 700; // cada cuanto mandamos el estado del equipo al render
 
@@ -369,21 +370,37 @@ ipcMain.handle('team:cwd', (_e, { cwd }) => setCwd(cwd));
 // transcribe en un utilityProcess (stt-worker.js) para no bloquear la app.
 // El modelo se descarga una vez a la carpeta de datos de la app.
 
-const WHISPER_MODEL = process.env.PIXEL_OFFICE_WHISPER || 'onnx-community/whisper-base';
-let stt = null; // { proc, pending: Map<reqId, resolve>, seq, last }
+// Precisión del reconocimiento (se elige en el panel): "precisa" usa Whisper
+// small (mucho mejor en español, ~500 MB la primera vez) y "rapida" Whisper
+// base (~130 MB, más rápido en PCs modestos). PIXEL_OFFICE_WHISPER manda.
+const WHISPER_MODELS = {
+  precisa: 'onnx-community/whisper-small',
+  rapida: 'onnx-community/whisper-base',
+};
+function whisperModel(quality) {
+  return process.env.PIXEL_OFFICE_WHISPER || WHISPER_MODELS[quality] || WHISPER_MODELS.precisa;
+}
+let stt = null; // { proc, model, pending: Map<reqId, resolve>, seq, last }
 
 function sendVoiceStatus(payload) {
   if (stt) stt.last = payload;
   if (win && !win.isDestroyed() && win.webContents) win.webContents.send('voice:status', payload);
 }
 
-function getStt() {
+function getStt(quality) {
+  const model = whisperModel(quality);
+  if (stt && stt.model !== model) {
+    // cambio de precisión: cerramos el motor y arrancamos con el otro modelo
+    stt.replaced = true;
+    try { stt.proc.kill(); } catch (_) { /* noop */ }
+    stt = null;
+  }
   if (stt) return stt;
   const proc = utilityProcess.fork(path.join(__dirname, 'stt-worker.js'), [], {
     serviceName: 'Pixel Office - voz',
     stdio: 'inherit',
   });
-  const me = { proc, pending: new Map(), seq: 0, last: null };
+  const me = { proc, model, pending: new Map(), seq: 0, last: null };
   stt = me;
 
   proc.on('message', (m) => {
@@ -403,7 +420,7 @@ function getStt() {
     for (const done of me.pending.values()) done({ error: 'el motor de voz se cerró (código ' + code + ')' });
     me.pending.clear();
     if (stt === me) stt = null;
-    if (!app.isQuitting) sendVoiceStatus({ state: 'error', text: 'El motor de voz se cerró; se reiniciará al volver a hablar.' });
+    if (!app.isQuitting && !me.replaced) sendVoiceStatus({ state: 'error', text: 'El motor de voz se cerró; se reiniciará al volver a hablar.' });
   });
 
   loadModel(me);
@@ -413,18 +430,18 @@ function getStt() {
 function loadModel(s) {
   s.proc.postMessage({
     type: 'load',
-    model: WHISPER_MODEL,
+    model: s.model,
     cacheDir: path.join(app.getPath('userData'), 'modelos-voz'),
   });
 }
 
-function transcribe(audio) {
+function transcribe(audio, quality) {
   if (!audio || !audio.length) return Promise.resolve({ text: '' });
   const samples = audio instanceof Float32Array ? audio : new Float32Array(audio);
   // Límite de seguridad: 2 minutos de audio (slice copia solo ese trozo).
   const MAX = 16000 * 120;
   const clipped = samples.length > MAX ? samples.slice(0, MAX) : samples;
-  const s = getStt();
+  const s = getStt(quality);
   const reqId = ++s.seq;
   const ready = !!(s.last && s.last.state === 'ready');
   return new Promise((resolve) => {
@@ -445,9 +462,10 @@ function transcribe(audio) {
   });
 }
 
-ipcMain.handle('voice:prepare', () => {
-  const fresh = !stt;
-  const s = getStt();
+ipcMain.handle('voice:prepare', (_e, opts) => {
+  const quality = opts && opts.quality;
+  const fresh = !stt || stt.model !== whisperModel(quality);
+  const s = getStt(quality);
   // Si la carga anterior falló (p. ej. sin conexión), lo reintentamos.
   if (!fresh && s.last && s.last.state === 'error') {
     s.last = null;
@@ -455,7 +473,20 @@ ipcMain.handle('voice:prepare', () => {
   }
   return s.last || { state: 'loading', progress: 0, text: 'Preparando el modelo de voz…' };
 });
-ipcMain.handle('voice:transcribe', (_e, audio) => transcribe(audio));
+ipcMain.handle('voice:transcribe', (_e, { audio, quality } = {}) => transcribe(audio, quality));
+
+// Voz natural de un miembro del equipo: devuelve el MP3 (o un error, y el
+// render usa entonces la voz del sistema).
+ipcMain.handle('tts:speak', async (_e, { id, text } = {}) => {
+  const member = memberOf(id);
+  try {
+    const audio = await synthesize(text, member && member.voice);
+    return { audio: new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength) };
+  } catch (e) {
+    console.error('[voz natural]', e && e.message ? e.message : e);
+    return { error: String(e && e.message ? e.message : e) };
+  }
+});
 
 // Solo la propia app (file://) puede usar el micrófono, y solo audio.
 // Cámara y demás permisos, denegados.

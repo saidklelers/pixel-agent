@@ -60,8 +60,11 @@ Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
 1. Mantén pulsado **🎤** (o **Ctrl+Espacio**) mientras hablas y suelta para
    enviar. O haz **un clic y habla**: se envía solo cuando te callas.
    **Esc** cancela.
-2. La primera vez se descarga el modelo de voz (Whisper *base*, ~130 MB) y verás
-   una barra de progreso. La transcripción es **local**: el audio no sale de tu
+2. La primera vez se descarga el modelo de voz y verás una barra de progreso.
+   En **🎙️ Te entiendo** eliges la precisión: **Preciso** (Whisper *small*,
+   ~500 MB, mucho mejor en español; por defecto) o **Rápido** (Whisper *base*,
+   ~130 MB, para PCs modestos). Antes de transcribir se recortan los silencios y
+   se ajusta el volumen de la grabación. La transcripción es **local**: el audio no sale de tu
    PC y no hace falta ninguna clave. En la terminal donde lanzaste `npm start`
    verás `[voz] transcrito: «…»` con lo que ha entendido.
 3. Lo que digas (o escribas) se interpreta como una orden:
@@ -85,11 +88,24 @@ Mientras grabas, el equipo no habla (para que el micro no capte su voz). El
 micro se corta solo a los 2 minutos o al cambiar de ventana.
 
 ### Respuestas habladas 🔊
-- El equipo lee sus respuestas con las voces en español de Windows (una voz
-  o un tono distinto por agente). Se omiten los bloques de código y el markdown.
-- **🔊** en la cabecera activa/desactiva la lectura; **⏹** (o **Esc**) calla a
-  todos. Al pulsar el micro, los agentes se callan para escucharte.
-- Si solo oyes una voz, instala más en *Configuración › Hora e idioma › Voz*.
+Cada miembro habla con su propia **voz natural** (voces neuronales de
+Microsoft, las de «Leer en voz alta» de Edge), que suenan como una persona:
+
+| Miembro | Voz |
+|---|---|
+| JARVIS | Álvaro (España) |
+| FRIDAY | Dalia (México) |
+| TARS | Jorge (México), más grave |
+| EDITH | Elvira (España) |
+| KITT | Tomás (Argentina) |
+
+- Necesitan internet: el texto de la respuesta se envía al servicio de voz de
+  Microsoft para convertirlo en audio (no hace falta cuenta ni clave). Si no
+  hay conexión, se usa automáticamente la voz del sistema y te avisa.
+- En **🔊 Voces** puedes elegir «Del sistema» si prefieres que nada salga de
+  tu PC (suena más robótica).
+- Se omiten los bloques de código y el markdown. **🔊** en la cabecera
+  activa/desactiva la lectura; **⏹** (o **Esc**) calla a todos.
 
 ### Si el micrófono no funciona
 - *Configuración › Privacidad y seguridad › Micrófono*: activa «Permitir que las

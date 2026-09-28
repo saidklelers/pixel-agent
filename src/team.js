@@ -9,6 +9,8 @@
 const TEAM = [
   {
     id: 'jarvis',
+    // voz neuronal (natural) con la que habla; si no hay internet, la del sistema
+    voice: { name: 'es-ES-AlvaroNeural', rate: '+0%', pitch: '-1st' },
     name: 'JARVIS',
     from: 'Iron Man',
     role: 'Arquitecto y líder técnico',
@@ -24,6 +26,8 @@ const TEAM = [
   },
   {
     id: 'friday',
+    // voz neuronal (natural) con la que habla; si no hay internet, la del sistema
+    voice: { name: 'es-MX-DaliaNeural', rate: '+6%', pitch: '+1st' },
     name: 'FRIDAY',
     from: 'Iron Man',
     role: 'Frontend y UI/UX',
@@ -36,6 +40,8 @@ const TEAM = [
   },
   {
     id: 'tars',
+    // voz neuronal (natural) con la que habla; si no hay internet, la del sistema
+    voice: { name: 'es-MX-JorgeNeural', rate: '+0%', pitch: '-3st' },
     name: 'TARS',
     from: 'Interstellar',
     role: 'Backend y datos',
@@ -49,6 +55,8 @@ const TEAM = [
   },
   {
     id: 'edith',
+    // voz neuronal (natural) con la que habla; si no hay internet, la del sistema
+    voice: { name: 'es-ES-ElviraNeural', rate: '+2%', pitch: '+0st' },
     name: 'EDITH',
     from: 'Spider-Man',
     role: 'QA, tests y seguridad',
@@ -62,6 +70,8 @@ const TEAM = [
   },
   {
     id: 'kitt',
+    // voz neuronal (natural) con la que habla; si no hay internet, la del sistema
+    voice: { name: 'es-AR-TomasNeural', rate: '+4%', pitch: '-1st' },
     name: 'KITT',
     from: 'El coche fantástico',
     role: 'DevOps y despliegue',

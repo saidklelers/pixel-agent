@@ -792,3 +792,28 @@ button.mini:hover {
   flex: 0 0 auto;
   padding: 0 10px;
 }
+
+/* ---- Ajustes de voz ---- */
+
+.voice-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.voice-settings label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.voice-settings select {
+  background: #14101d;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 11.5px;
+}

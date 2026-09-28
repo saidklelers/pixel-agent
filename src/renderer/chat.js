@@ -23,6 +23,8 @@ const micBtn = el('micBtn');
 const ttsBtn = el('ttsBtn');
 const skipBtn = el('skipBtn');
 const voiceStatusEl = el('voiceStatus');
+const sttQualityEl = el('sttQuality');
+const ttsModeEl = el('ttsMode');
 
 const VC = window.VoiceCommands;
 const PV = window.PixelVoice;
@@ -456,7 +458,7 @@ function showVoiceStatus(s) {
 function prepareVoice() {
   if (voicePrepared || !voiceIpc) return;
   voicePrepared = true;
-  voiceIpc.prepare().then(showVoiceStatus).catch(() => { voicePrepared = false; });
+  voiceIpc.prepare(sttQuality()).then(showVoiceStatus).catch(() => { voicePrepared = false; });
 }
 
 function micErrorText(e) {
@@ -516,7 +518,7 @@ async function micStop() {
     if (res.rms < 0.0015) { hint('🎤 No te he oído (¿micro silenciado?).', true); return; }
 
     hint('✍️ Transcribiendo… (Esc cancela)');
-    const r = await voiceIpc.transcribe(res.audio);
+    const r = await voiceIpc.transcribe(res.audio, sttQuality());
     if (req !== micReq) return; // cancelado con Esc mientras esperábamos
     if (r && r.error) { hint('🎤 Error al transcribir: ' + r.error, true); return; }
     const text = String((r && r.text) || '').trim();
@@ -587,6 +589,27 @@ document.addEventListener('keyup', (e) => {
 window.addEventListener('blur', () => { if (micMode) micStop(); });
 
 if (voiceIpc && voiceIpc.onStatus) voiceIpc.onStatus(showVoiceStatus);
+
+// ---- Voz: ajustes ----------------------------------------------------------
+
+function sttQuality() { return sttQualityEl.value === 'rapida' ? 'rapida' : 'precisa'; }
+
+try { sttQualityEl.value = localStorage.getItem('pixel.voz.precision') || 'precisa'; } catch (_) { /* noop */ }
+sttQualityEl.addEventListener('change', () => {
+  try { localStorage.setItem('pixel.voz.precision', sttQuality()); } catch (_) { /* noop */ }
+  voicePrepared = false;
+  prepareVoice(); // descarga/carga el otro modelo ya
+  hint(sttQuality() === 'precisa' ? '🎙️ Reconocimiento preciso (Whisper small).' : '🎙️ Reconocimiento rápido (Whisper base).');
+});
+if (PV) {
+  ttsModeEl.value = PV.speaker.mode();
+  if (!PV.speaker.hasNatural()) ttsModeEl.disabled = true;
+  ttsModeEl.addEventListener('change', () => {
+    PV.speaker.setMode(ttsModeEl.value);
+    hint(ttsModeEl.value === 'natural' ? '🔊 Voces naturales (cada miembro con la suya).' : '🔊 Voces del sistema.');
+  });
+  PV.speaker.onNotice((text) => hint(text, true));
+}
 
 // ---- Voz: respuestas habladas ----------------------------------------------
 

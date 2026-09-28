@@ -20,8 +20,11 @@ contextBridge.exposeInMainWorld('teamApi', {
 
 // Voz: transcripción local (Whisper) en el proceso principal
 contextBridge.exposeInMainWorld('voiceApi', {
-  prepare: () => ipcRenderer.invoke('voice:prepare'),
+  // quality: 'precisa' (Whisper small) o 'rapida' (Whisper base)
+  prepare: (quality) => ipcRenderer.invoke('voice:prepare', { quality }),
   // audio: Float32Array a 16 kHz mono
-  transcribe: (audio) => ipcRenderer.invoke('voice:transcribe', audio),
+  transcribe: (audio, quality) => ipcRenderer.invoke('voice:transcribe', { audio, quality }),
+  // voz natural de un miembro: { audio: Uint8Array (mp3) } o { error }
+  speak: (id, text) => ipcRenderer.invoke('tts:speak', { id, text }),
   onStatus: (cb) => ipcRenderer.on('voice:status', (_e, data) => cb(data)),
 });
