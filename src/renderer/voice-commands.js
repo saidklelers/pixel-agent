@@ -2,18 +2,18 @@
 
 // ---------------------------------------------------------------------------
 // Órdenes por voz: convierte lo que dijo el usuario (ya transcrito) en una
-// acción para el Centro de mando. Es código puro, sin DOM ni Electron, para
-// poder probarlo con Node (test/voice-commands.test.js).
+// acción para el equipo. Es código puro, sin DOM ni Electron, para poder
+// probarlo con Node (test/voice-commands.test.js).
 //
-//   "Ana, revisa los tests"            -> send     a Ana
-//   "Ana y Beto: haced un commit"      -> send     a Ana y Beto
+//   "JARVIS, revisa la arquitectura"   -> send      a JARVIS
+//   "FRIDAY y EDITH: …"                -> send      a FRIDAY y EDITH
 //   "todos, paren"                     -> interrupt a todos
-//   "para, Leo" / "detén a Leo"        -> interrupt a Leo
-//   "despide a Leo"                    -> stop     a Leo (cierra la sesión)
-//   "nuevo agente llamado Leo: …"      -> spawn    (nombre Leo, tarea …)
-//   "silencio"                         -> silence  (corta la voz de los agentes)
-//   "Ana"                              -> select   (Ana pasa a ser el destino)
-//   cualquier otra cosa                -> send     al destino actual
+//   "para, KITT" / "detén a KITT"      -> interrupt a KITT
+//   "KITT, capacítate en Kubernetes"   -> train     (KITT aprende Kubernetes)
+//   "reinicia a TARS"                  -> reset     (TARS olvida la conversación)
+//   "silencio"                         -> silence   (corta la voz de los agentes)
+//   "EDITH"                            -> select    (EDITH pasa a ser el destino)
+//   cualquier otra cosa                -> send      al destino actual
 // ---------------------------------------------------------------------------
 
 (function (root) {
@@ -51,18 +51,13 @@
   const FILLERS = /^(?:oye|oiga|oigan|hey|eh|ey|hola|vale|bueno|venga|a ver|ok|okay|escucha|escuchad)\b[\s,.:;!¡]*/;
   const POLITE = /(?:[\s,]+(?:por favor|porfa|ya|ahora|ahora mismo|un momento|un segundo|de momento|gracias|inmediatamente|enseguida))+$/;
   const INTERRUPT = '(?:para|paren|parad|parate|pare|detente|deteneos|detenganse|deten|alto|basta|stop|espera|esperad|esperen|quieto|quietos|quieta|frena|frenad|pausa|cancela|cancelad)';
-  // Cerrar una sesión es destructivo: solo con verbos inequívocos y SIEMPRE con
-  // nombre ("despide a Leo"). "Termina", "cierra" o "apaga" suelen ser tareas
-  // ("termina el informe") y se envían como mensaje.
-  const KILL = '(?:despide|despedid|despidelo|despidela|elimina|eliminad|eliminalo|eliminala)';
+  // Reiniciar (olvidar la conversación) solo con verbo inequívoco y SIEMPRE con
+  // nombre ("reinicia a TARS"). "Reinicia el servidor" es una tarea normal.
+  const KILL = '(?:reinicia|reiniciad|reinicialo|reiniciala|reiniciate|resetea|reseteala|resetealo|reseteate)';
+  // Capacitación: "capacítate en X", "aprende X", "especialízate en X"…
+  const TRAIN = /^(?:capacitate|capacitaos|formate|formaos|entrenate|entrenaos|especializate|especializaos|aprende(?:\s+(?:sobre|acerca de))?|estudia|documentate)\s+(?:(?:en|sobre|acerca de|a|de)\s+)?(?:el\s+|la\s+|los\s+|las\s+)?(?=\S)/;
   const SILENCE = /^(?:silencio|callate|callaos|callense|calla|shh+|chis+|deja de hablar|dejad de hablar|no hables|no habl[eé]is|mute|silencia)$/;
   const ALL_WORDS = '(?:a\\s+)?(?:todos los agentes|todo el mundo|todos|todas|equipo|chicos|chicas|gente|agentes)';
-  const SPAWN = /^(?:(?:crea|crear|creame|lanza|lanzar|lanzame|pon|ponme|anade|anademe|contrata|quiero|necesito|dame|abre)\s+)?(?:(?:un|una|otro|otra)\s+)?(?:(?:nuevo|nueva)\s+agente|agente\s+(?:nuevo|nueva))\b|^(?:crea|crear|creame|lanza|lanzar|lanzame|anade|contrata|abre)\s+(?:(?:un|una|otro)\s+)?agente\b/;
-  const NAMED = /^[\s,]*(?:que\s+se\s+llame|que\s+se\s+llama|llamado|llamada|de\s+nombre|con\s+(?:el\s+)?nombre(?:\s+de)?|se\s+llama|nombre)\s+/;
-  // Tras "nuevo agente" tiene que venir el nombre, la tarea o nada: "crea un
-  // agente de scraping" o "añade un agente nuevo al docker-compose" son
-  // mensajes normales, no órdenes de lanzar un agente.
-  const SPAWN_TAIL = /^\s*(?:$|[:,.;!]|(?:que|para|y|llamad[oa]|de\s+nombre|con\s+(?:el\s+)?nombre|se\s+llama|nombre)\b)/;
 
   function trimPunct(s) {
     return String(s || '').replace(/^[\s,.:;!?¡¿…\-–—"'«»]+|[\s,.:;!?¡¿…\-–—"'«»]+$/g, '');
@@ -71,10 +66,18 @@
   // Intenta leer uno o varios nombres ("Ana", "Ana y Beto", "a Leo") al
   // principio del texto plegado. Devuelve { names, end } o null.
   function readNames(f, names) {
-    const list = (names || [])
-      .filter((n) => n && String(n).trim())
-      .map((n) => ({ name: String(n).trim(), words: String(n).trim().split(/\s+/) }))
-      .sort((a, b) => b.words.length - a.words.length);
+    // names: textos sueltos o { name, aliases } (se devuelve siempre name)
+    const list = [];
+    for (const n of names || []) {
+      if (!n) continue;
+      const name = String(typeof n === 'object' ? n.name : n).trim();
+      const forms = typeof n === 'object' ? [n.name].concat(n.aliases || []) : [n];
+      for (const f of forms) {
+        const w = String(f || '').trim();
+        if (w) list.push({ name, words: w.split(/\s+/) });
+      }
+    }
+    list.sort((a, b) => b.words.length - a.words.length);
     if (!list.length) return null;
 
     // Hasta 4 palabras seguidas (solo espacios entre ellas).
@@ -94,7 +97,7 @@
       const k = cand.words.length;
       if (words.length < k) continue;
       const said = phonKey(words.slice(0, k).map((w) => w.text).join(' '));
-      if (said && said === phonKey(cand.name)) { hit = { name: cand.name, end: words[k - 1].end }; break; }
+      if (said && said === phonKey(cand.words.join(' '))) { hit = { name: cand.name, end: words[k - 1].end }; break; }
     }
     if (!hit) return null;
 
@@ -144,29 +147,6 @@
     }
     if (!t.trim()) return { type: 'empty' };
 
-    // Nuevo agente
-    const sp = f.match(SPAWN);
-    const spawnOk = sp && (SPAWN_TAIL.test(f.slice(sp[0].length)) ||
-      /^\s+[A-ZÁÉÍÓÚÑÜ][^\s,.:;!?¡¿]*\s*[,.:;]/.test(t.slice(sp[0].length)));
-    if (spawnOk) {
-      let i = sp[0].length;
-      let name = null;
-      const nm = f.slice(i).match(NAMED);
-      if (nm) {
-        i += nm[0].length;
-        const w = t.slice(i).match(/^[^\s,.:;!?¡¿]+/);
-        if (w) { name = w[0]; i += w[0].length; }
-      } else {
-        // "nuevo agente Leo: …" (nombre en mayúscula seguido de puntuación)
-        const w = t.slice(i).match(/^\s+([A-ZÁÉÍÓÚÑÜ][^\s,.:;!?¡¿]*)\s*[,.:;]/);
-        if (w) { name = w[1]; i += w[0].length; }
-      }
-      let task = trimPunct(t.slice(i));
-      task = task.replace(/^(?:y\s+)?(?:que\s+)?(?:para\s+que\s+)?/i, '');
-      if (name) name = name.charAt(0).toUpperCase() + name.slice(1);
-      return { type: 'spawn', name, text: task.trim() };
-    }
-
     if (SILENCE.test(trimPunct(f).replace(POLITE, ''))) return { type: 'silence' };
 
     // Destinatario al principio ("Ana, …", "todos: …")
@@ -181,11 +161,16 @@
     const frest = fold(rest);
 
     if (to && !rest) return { type: 'select', to };
+    const tr = frest.match(TRAIN);
+    if (tr) {
+      const topic = trimPunct(rest.slice(tr[0].length));
+      if (topic) return { type: 'train', to, topic };
+    }
     if (isOnly(INTERRUPT, frest)) return { type: 'interrupt', to };
-    // "Leo, despídelo": solo con nombres concretos (nunca "todos" ni sin nombre)
-    if (Array.isArray(to) && isOnly(KILL, frest)) return { type: 'stop', to };
+    // "TARS, reiníciate": solo con nombres concretos (nunca "todos" ni sin nombre)
+    if (Array.isArray(to) && isOnly(KILL, frest)) return { type: 'reset', to };
 
-    // "para, Ana" / "detén a Ana" / "despide a Leo" / "paren todos"
+    // "para, KITT" / "detén a KITT" / "reinicia a TARS" / "paren todos"
     if (!to) {
       const m = frest.match(new RegExp('^(' + INTERRUPT + '|' + KILL + ')\\b[\\s,]*(?:a\\s+)?'));
       if (m) {
@@ -194,7 +179,7 @@
         if (a && !trimPunct(ftail.slice(a.end)).replace(POLITE, '').trim()) {
           const kill = new RegExp('^' + KILL + '$').test(m[1]);
           if (!kill) return { type: 'interrupt', to: a.to };
-          if (Array.isArray(a.to)) return { type: 'stop', to: a.to };
+          if (Array.isArray(a.to)) return { type: 'reset', to: a.to };
         }
       }
     }

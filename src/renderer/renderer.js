@@ -12,7 +12,7 @@
 //   profundidad (x + y) para que se tapen correctamente.
 // - Clic en un personaje: lo elige como destino en el Centro de mando
 //   (evento 'pixel:pick'); Ctrl/Mayus+clic lo marca para difusion.
-// Lee de chat.js: PIXEL_AGENT_NAMES, PIXEL_TARGET_SESSIONS y
+// Lee de chat.js: PIXEL_TARGET_SESSIONS (destino) y
 // PIXEL_SPEAKING_SESSION (quien esta hablando en voz alta).
 // ---------------------------------------------------------------------------
 
@@ -26,7 +26,7 @@ const TH = 38;   // alto en pantalla de una baldosa
 const WALL_H = 140; // alto de las paredes (px)
 const WL = 40;   // px de pared por baldosa (coordenadas locales de la pared)
 const BASE_OY = 226; // y de la esquina del fondo sin estirar la sala
-const CHAR_SCALE = 1.35;
+const CHAR_SCALE = 1.5;
 
 const canvas = document.getElementById('stage');
 const mainCtx = canvas.getContext('2d');
@@ -112,6 +112,9 @@ function lookFor(id) {
     hair: pick(HAIRS, id + 'h'),
     skin: pick(SKINS, id + 's'),
     pants: pick(PANTS, id + 'p2'),
+    accent: '#7ee08a',
+    hairStyle: Math.abs(hash(id + 'hs')) % 4,
+    style: 'human',
   };
 }
 window.PixelOffice = { lookFor };
@@ -149,13 +152,12 @@ function wallLeftT() { ctx.transform(TW / 2 / WL, -TH / 2 / WL, 0, 1, OX - GH * 
 
 // ---- Distribucion de puestos -------------------------------------------------
 
-const COLS_X = [2.6, 5.3, 8.0, 10.7];
-const ROWS_Y = [3.3, 6.3, 9.3];
-const SLOTS = [];
-for (const cy of ROWS_Y) {
-  for (const cx of COLS_X) SLOTS.push({ cx, cy, seatX: cx - 0.7, seatY: cy - 0.85 });
-}
+// Un puesto por miembro del equipo (en el orden de team.js): JARVIS al fondo
+// en el centro, y los demás a los lados de la mesa holográfica.
+const SLOTS = [[6.6, 3.0], [3.2, 6.1], [10.0, 6.1], [3.2, 9.3], [10.0, 9.3]]
+  .map(([cx, cy]) => ({ cx, cy, seatX: cx - 0.7, seatY: cy - 0.85 }));
 const MAX_DESKS = SLOTS.length;
+const HOLO = { x: 6.6, y: 7.6 };
 const DOOR = { x: 0.15, y: 10.6 };
 const FRONT_Y = 10.95; // pasillo delantero
 
@@ -190,11 +192,10 @@ function syncAgents(payload) {
     seen.add(a.id);
     let d = display.get(a.id);
     if (!d) {
-      // primer puesto libre
-      const used = new Set(Array.from(display.values()).map((x) => x.slotIndex));
-      let slotIndex = 0;
-      while (used.has(slotIndex) && slotIndex < SLOTS.length - 1) slotIndex++;
+      // cada miembro tiene su puesto fijo; entran por la puerta uno detrás de otro
+      const slotIndex = Math.min(incoming.indexOf(a), SLOTS.length - 1);
       const slot = SLOTS[slotIndex];
+      const look = a.look || lookFor(a.id);
       d = Object.assign({
         id: a.id,
         slot,
@@ -202,20 +203,22 @@ function syncAgents(payload) {
         x: DOOR.x,
         y: DOOR.y,
         path: pathTo(slot),
+        startAt: performance.now() + 400 + slotIndex * 1100,
         arrived: false,
         back: false,
         phase: Math.abs(hash(a.id)) % 1000,
-        hairStyle: Math.abs(hash(a.id + 'hs')) % 5,
-        glasses: Math.abs(hash(a.id + 'g')) % 4 === 0,
         rug: pick(RUGS, a.id + 'r'),
         hasPlant: Math.abs(hash(a.id + 'p')) % 3 === 0,
         hasMug: Math.abs(hash(a.id + 'm')) % 2 === 0,
         hasLamp: Math.abs(hash(a.id + 'l')) % 2 === 0,
         emitAt: 0,
-      }, lookFor(a.id));
+      }, look);
       display.set(a.id, d);
     }
     d.project = a.project;
+    d.name = a.name || a.project;
+    d.role = a.role || '';
+    d.busy = !!a.busy;
     d.state = a.state;
     d.emoji = a.emoji;
     d.label = a.label;
@@ -829,26 +832,27 @@ function drawChair(d) {
   box(x - 0.28, y - 0.36, 12, 0.56, 0.1, 36, '#2c3142');
 }
 
-// ---- Personaje -------------------------------------------------------------
-// Sprite de frente (o de espaldas al alejarse). (px, py) = pies en pantalla.
+// ---- Personaje (chibi) -----------------------------------------------------
+// Cabeza grande, cuerpo pequeño. Cada miembro tiene su estilo (look.style):
+// 'human', 'robot' (TARS) o 'visor' (KITT, con su escáner rojo) y un
+// accesorio (look.acc): auricular, diadema, gafas… (px, py) = pies en pantalla.
 
 function drawCharacter(d, t, px, py, seated) {
   const x = Math.round(px);
   const feet = Math.round(py);
   const walking = !d.arrived;
-  const stale = isStale(d);
-  const working = d.arrived && AT_WORK.has(d.state) && !stale;
+  const working = d.arrived && AT_WORK.has(d.state);
   const bob = walking
-    ? Math.abs(Math.sin(t / 110 + d.phase)) * 2
-    : working ? Math.sin(t / 160 + d.phase) * 1.1 : Math.sin(t / 620 + d.phase) * 0.8;
-  const top = Math.round(feet - 42 + bob);
-  const dark = shade(d.shirt, 0.62);
+    ? Math.abs(Math.sin(t / 110 + d.phase)) * 1.6
+    : working ? Math.sin(t / 160 + d.phase) * 0.8 : Math.sin(t / 620 + d.phase) * 0.6;
+  const top = Math.round(feet - 38 + bob); // parte de arriba de la cabeza
   const back = walking && d.back;
+  const robot = d.style === 'robot';
 
   if (!seated) {
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
     ctx.beginPath();
-    ctx.ellipse(x, feet + 1, 15, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, feet + 1, 16, 6, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -857,136 +861,202 @@ function drawCharacter(d, t, px, py, seated) {
   ctx.scale(CHAR_SCALE, CHAR_SCALE);
   ctx.translate(-x, -feet);
 
-  // piernas (alternan al caminar; sentado, casi no se ven)
+  // piernas cortitas
   const step = walking ? Math.sin(t / 85 + d.phase) : 0;
-  const lA = Math.round(Math.max(0, step) * 3);
-  const lB = Math.round(Math.max(0, -step) * 3);
-  const legH = seated ? 6 : 13;
-  orect(x - 7, top + 27, 5, legH - lA, d.pants);
-  orect(x + 2, top + 27, 5, legH - lB, d.pants);
+  const lA = Math.round(Math.max(0, step) * 2);
+  const lB = Math.round(Math.max(0, -step) * 2);
+  const legH = seated ? 3 : 5;
+  orect(x - 5, top + 32, 4, legH - lA, d.pants);
+  orect(x + 1, top + 32, 4, legH - lB, d.pants);
   if (!seated) {
-    orect(x - 8, top + 39 - lA, 7, 3, '#1c1f2e');
-    orect(x + 1, top + 39 - lB, 7, 3, '#1c1f2e');
+    orect(x - 6, top + 36 - lA, 5, 2, robot ? '#3a3f4a' : '#1c1f2e');
+    orect(x + 1, top + 36 - lB, 5, 2, robot ? '#3a3f4a' : '#1c1f2e');
   }
 
   // cuerpo
-  rect(x - 11, top + 13, 22, 17, OUTLINE);
-  roundRect(x - 10, top + 14, 20, 15, 4, d.shirt);
-  rect(x - 10, top + 23, 20, 6, dark);
-  rect(x - 10, top + 23, 20, 1, shade(d.shirt, 0.82));
+  roundRect(x - 8, top + 20, 16, 14, 5, OUTLINE);
+  roundRect(x - 7, top + 21, 14, 12, 4, d.shirt);
+  rect(x - 7, top + 28, 14, 5, shade(d.shirt, 0.72));
   if (!back) {
-    rect(x - 3, top + 14, 6, 2, shade(d.skin, 0.9));
-    rect(x - 3, top + 16, 1, 6, '#3a3f4a');
-    rect(x + 2, top + 16, 1, 6, '#3a3f4a');
-    rect(x - 2, top + 21, 5, 4, '#eef0f3');
+    if (d.acc === 'earpiece') { // traje con corbata
+      rect(x - 1, top + 21, 2, 7, d.accent);
+      rect(x - 3, top + 21, 2, 2, '#eef0f3');
+      rect(x + 1, top + 21, 2, 2, '#eef0f3');
+    } else if (robot) {
+      rect(x - 4, top + 23, 8, 4, '#2a2d38');
+      rect(x - 3, top + 24, 2, 2, Math.floor(t / 400) % 2 ? d.accent : '#3a3f4a');
+      rect(x + 1, top + 24, 2, 2, '#f2c14e');
+    } else if (d.acc === 'glasses') {
+      rect(x - 2, top + 23, 4, 4, d.accent); // escudo
+      rect(x - 1, top + 24, 2, 2, '#eef0f3');
+    } else if (d.acc === 'visor') {
+      rect(x - 7, top + 26, 14, 1, d.accent);
+    } else {
+      rect(x - 2, top + 22, 4, 3, shade(d.shirt, 1.25));
+    }
   }
 
-  // brazos
+  // bracitos (teclean cuando trabaja)
   const typing = working && (d.state === 'coding' || d.state === 'running' || d.state === 'working');
   const armOff = typing && Math.sin(t / 90 + d.phase) > 0 ? 1 : 0;
   const swing = walking ? Math.round(step * 2) : 0;
-  orect(x - 14, top + 17 + armOff + swing, 4, 10, d.shirt);
-  orect(x + 10, top + 17 + armOff - swing, 4, 10, d.shirt);
-  rect(x - 14, top + 26 + armOff + swing, 4, 3, d.skin);
-  rect(x + 10, top + 26 + armOff - swing, 4, 3, d.skin);
+  orect(x - 10, top + 22 + armOff + swing, 3, 7, d.shirt);
+  orect(x + 7, top + 22 + armOff - swing, 3, 7, d.shirt);
+  rect(x - 10, top + 28 + armOff + swing, 3, 2, robot ? '#aab3bd' : d.skin);
+  rect(x + 7, top + 28 + armOff - swing, 3, 2, robot ? '#aab3bd' : d.skin);
 
-  // cabeza
-  rect(x - 9, top - 1, 18, 16, OUTLINE);
-  rect(x - 8, top, 16, 14, d.skin);
-  rect(x - 8, top + 11, 16, 3, shade(d.skin, 0.9));
-  rect(x - 9, top + 5, 1, 4, d.skin);
-  rect(x + 8, top + 5, 1, 4, d.skin);
+  // cabezota
+  if (robot) drawRobotHead(d, t, x, top, back);
+  else drawHumanHead(d, t, x, top, back);
+  ctx.restore();
+}
 
+function drawHumanHead(d, t, x, top, back) {
+  roundRect(x - 12, top - 1, 24, 22, 8, OUTLINE);
+  roundRect(x - 11, top, 22, 20, 7, d.skin);
+  rect(x - 12, top + 9, 1, 5, d.skin); // orejas
+  rect(x + 11, top + 9, 1, 5, d.skin);
   drawHair(d, x, top, back);
+  if (back) return;
 
-  if (!back) {
+  const visor = d.style === 'visor';
+  if (visor) {
+    // visor con el escáner rojo de KITT barriendo de lado a lado
+    roundRect(x - 11, top + 8, 22, 6, 2, '#15131c');
+    const k = (Math.sin(t / 260) + 1) / 2;
+    const sx = x - 9 + k * 16;
+    ctx.fillStyle = alpha(d.accent, 0.35);
+    ctx.fillRect(sx - 4, top + 9, 8, 4);
+    rect(sx - 1.5, top + 9, 3, 4, d.accent);
+  } else {
     const blink = ((t + d.phase * 37) % 4300) < 130;
-    if (stale || d.state === 'idle') {
-      rect(x - 5, top + 7, 3, 1, '#3a2f2f');
-      rect(x + 2, top + 7, 3, 1, '#3a2f2f');
-    } else if (blink) {
-      rect(x - 5, top + 7, 3, 1, '#1a1a1a');
-      rect(x + 2, top + 7, 3, 1, '#1a1a1a');
+    if (blink) {
+      rect(x - 7, top + 11, 4, 1, '#1a1a1a');
+      rect(x + 3, top + 11, 4, 1, '#1a1a1a');
     } else {
-      rect(x - 5, top + 5, 2, 3, '#1a1a1a');
-      rect(x + 3, top + 5, 2, 3, '#1a1a1a');
-      rect(x - 5, top + 5, 1, 1, '#ffffff');
-      rect(x + 3, top + 5, 1, 1, '#ffffff');
+      // ojazos con brillo
+      rect(x - 7, top + 8, 4, 5, '#1a1a1a');
+      rect(x + 3, top + 8, 4, 5, '#1a1a1a');
+      rect(x - 6, top + 9, 2, 2, '#ffffff');
+      rect(x + 4, top + 9, 2, 2, '#ffffff');
+      rect(x - 5, top + 12, 1, 1, alpha(d.accent, 0.9));
+      rect(x + 5, top + 12, 1, 1, alpha(d.accent, 0.9));
     }
-    if (d.glasses) {
+    if (d.acc === 'glasses') {
       ctx.strokeStyle = '#1a1a1a';
       ctx.lineWidth = 1;
-      ctx.strokeRect(x - 6.5, top + 4.5, 5, 4);
-      ctx.strokeRect(x + 1.5, top + 4.5, 5, 4);
-      rect(x - 1, top + 6, 2, 1, '#1a1a1a');
-    }
-    rect(x - 7, top + 9, 2, 1, 'rgba(232,120,120,0.55)');
-    rect(x + 5, top + 9, 2, 1, 'rgba(232,120,120,0.55)');
-
-    if (isSpeaking(d)) {
-      const open = Math.abs(Math.sin(t / 75)) > 0.4;
-      rect(x - 2, top + 10, 4, open ? 3 : 1, '#7a2e2e');
-      ctx.strokeStyle = alpha(TARGET_COLOR, 0.85);
-      ctx.lineWidth = 1.5;
-      for (let i = 0; i < 2; i++) {
-        const r = 5 + i * 5 + ((t / 90) % 5);
-        ctx.globalAlpha = Math.max(0, 1 - r / 16);
-        ctx.beginPath();
-        ctx.arc(x + 9, top + 8, r, -0.7, 0.7);
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-    } else if (!stale && (d.state === 'talking' || d.state === 'prompt')) {
-      rect(x - 2, top + 10, 4, 2, '#7a2e2e');
-    } else {
-      rect(x - 1, top + 11, 2, 1, '#5a3a3a');
+      ctx.beginPath(); ctx.arc(x - 5, top + 10.5, 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x + 5, top + 10.5, 4, 0, Math.PI * 2); ctx.stroke();
+      rect(x - 1, top + 10, 2, 1, '#1a1a1a');
     }
   }
-  ctx.restore();
+  // mofletes
+  rect(x - 10, top + 14, 3, 2, 'rgba(232,120,120,0.55)');
+  rect(x + 7, top + 14, 3, 2, 'rgba(232,120,120,0.55)');
+  drawMouth(d, t, x, top + 16, '#7a2e2e');
+
+  if (d.acc === 'earpiece') {
+    rect(x + 11, top + 10, 2, 4, '#2a2d38');
+    rect(x + 12, top + 9, 1, 1, Math.floor(t / 500) % 2 ? d.accent : '#2a2d38');
+  }
+}
+
+function drawRobotHead(d, t, x, top, back) {
+  // cabeza metálica con pantalla y antena
+  rect(x, top - 6, 1, 5, '#5c6570');
+  rect(x - 1, top - 8, 3, 3, Math.floor(t / 600) % 2 ? d.accent : '#e85d75');
+  roundRect(x - 12, top - 1, 24, 22, 4, OUTLINE);
+  roundRect(x - 11, top, 22, 20, 3, d.skin);
+  rect(x - 11, top, 22, 3, shade(d.skin, 1.15));
+  rect(x - 13, top + 7, 2, 6, '#5c6570'); // tuercas
+  rect(x + 11, top + 7, 2, 6, '#5c6570');
+  if (back) {
+    for (let i = 0; i < 3; i++) rect(x - 7, top + 6 + i * 4, 14, 1, shade(d.skin, 0.8));
+    return;
+  }
+  roundRect(x - 9, top + 4, 18, 13, 2, '#15131c');
+  const blink = ((t + d.phase * 37) % 3900) < 120;
+  const eh = blink ? 1 : 4;
+  rect(x - 6, top + 8 + (blink ? 2 : 0), 4, eh, d.accent);
+  rect(x + 2, top + 8 + (blink ? 2 : 0), 4, eh, d.accent);
+  // boca de LEDs (se mueve al hablar)
+  const speaking = isSpeaking(d);
+  for (let i = 0; i < 5; i++) {
+    const h = speaking ? 1 + Math.round(Math.abs(Math.sin(t / 80 + i)) * 2) : 1;
+    rect(x - 5 + i * 2, top + 14 - h + 1, 1, h, alpha(d.accent, 0.8));
+  }
+  if (speaking) drawWaves(t, x, top);
+}
+
+function drawMouth(d, t, x, y, color) {
+  if (isSpeaking(d)) {
+    const open = Math.abs(Math.sin(t / 75)) > 0.4;
+    rect(x - 2, y, 4, open ? 3 : 1, color);
+    drawWaves(t, x, y - 8);
+  } else if (d.state === 'talking' || d.state === 'prompt') {
+    rect(x - 2, y, 4, 2, color);
+  } else {
+    rect(x - 2, y, 1, 1, color);
+    rect(x - 1, y + 1, 2, 1, color);
+    rect(x + 1, y, 1, 1, color);
+  }
+}
+
+function drawWaves(t, x, y) {
+  ctx.strokeStyle = alpha(TARGET_COLOR, 0.85);
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 2; i++) {
+    const r = 5 + i * 5 + ((t / 90) % 5);
+    ctx.globalAlpha = Math.max(0, 1 - r / 16);
+    ctx.beginPath();
+    ctx.arc(x + 13, y + 8, r, -0.7, 0.7);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawHair(d, x, top, back) {
   const h = d.hair;
   const hl = shade(h, 1.35);
-  if (back) { // de espaldas: la cabeza es pelo
-    rect(x - 8, top - 2, 16, 13, h);
-    rect(x - 5, top - 1, 6, 1, hl);
-    if (d.hairStyle === 2) { rect(x - 9, top - 1, 18, 15, h); }
-    if (d.hairStyle === 3) { rect(x - 4, top - 9, 8, 6, OUTLINE); rect(x - 3, top - 8, 6, 5, h); }
-    if (d.hairStyle === 4) { rect(x - 9, top - 4, 18, 6, OUTLINE); rect(x - 8, top - 3, 16, 5, d.shirt); }
+  if (back) { // de espaldas: casi toda la cabeza es pelo
+    roundRect(x - 11, top - 1, 22, 17, 7, h);
+    rect(x - 6, top, 8, 1, hl);
+    if (d.hairStyle === 2) roundRect(x - 12, top + 4, 24, 20, 5, h);
+    if (d.hairStyle === 3) { roundRect(x - 5, top - 7, 10, 7, 3, OUTLINE); roundRect(x - 4, top - 6, 8, 5, 2, h); }
+    if (d.acc === 'headband') rect(x - 11, top + 3, 22, 2, d.accent);
     return;
   }
-  rect(x - 9, top - 3, 18, 6, OUTLINE);
-  rect(x - 8, top - 2, 16, 4, h);
+  roundRect(x - 12, top - 2, 24, 9, 6, OUTLINE);
+  roundRect(x - 11, top - 1, 22, 7, 5, h);
   switch (d.hairStyle) {
-    case 0: // corto
-      rect(x - 9, top - 2, 3, 8, h);
-      rect(x + 6, top - 2, 3, 8, h);
+    case 0: // peinado hacia atrás
+      rect(x - 11, top + 2, 3, 6, h);
+      rect(x + 8, top + 2, 3, 6, h);
+      rect(x - 4, top + 4, 8, 2, h);
       break;
     case 1: // de punta
-      rect(x - 7, top - 6, 3, 4, h);
-      rect(x - 1, top - 7, 3, 5, h);
-      rect(x + 4, top - 6, 3, 4, h);
+      rect(x - 9, top - 5, 3, 4, h);
+      rect(x - 3, top - 6, 3, 5, h);
+      rect(x + 3, top - 5, 3, 4, h);
+      rect(x - 11, top + 2, 3, 5, h);
+      rect(x + 8, top + 2, 3, 5, h);
       break;
-    case 2: // largo
-      rect(x - 10, top - 2, 4, 17, OUTLINE);
-      rect(x + 6, top - 2, 4, 17, OUTLINE);
-      rect(x - 9, top - 1, 3, 15, h);
-      rect(x + 6, top - 1, 3, 15, h);
+    case 2: // melena larga
+      rect(x - 13, top + 1, 4, 22, OUTLINE);
+      rect(x + 9, top + 1, 4, 22, OUTLINE);
+      rect(x - 12, top + 1, 3, 21, h);
+      rect(x + 9, top + 1, 3, 21, h);
+      rect(x - 11, top + 4, 6, 3, h); // flequillo
       break;
     case 3: // moño
-      rect(x - 4, top - 9, 8, 6, OUTLINE);
-      rect(x - 3, top - 8, 6, 5, h);
-      rect(x - 9, top - 2, 3, 6, h);
-      rect(x + 6, top - 2, 3, 6, h);
+      roundRect(x - 5, top - 8, 10, 7, 3, OUTLINE);
+      roundRect(x - 4, top - 7, 8, 5, 2, h);
+      rect(x - 11, top + 2, 3, 7, h);
+      rect(x + 8, top + 2, 3, 7, h);
       break;
-    case 4: // gorra
-      rect(x - 9, top - 4, 18, 6, OUTLINE);
-      rect(x - 8, top - 3, 16, 4, d.shirt);
-      rect(x - 8, top + 1, 20, 2, shade(d.shirt, 0.7));
-      return;
   }
-  rect(x - 5, top - 2, 6, 1, hl);
+  rect(x - 6, top, 7, 1, hl); // brillo
+  if (d.acc === 'headband') rect(x - 11, top + 3, 22, 2, d.accent);
 }
 
 // Pies del personaje en pantalla (sentado, un poco mas arriba).
@@ -994,7 +1064,7 @@ function charFeet(d) {
   return iso(d.x, d.y, d.arrived ? 12 : 0);
 }
 function headTop(d) {
-  return charFeet(d).y - 50 * CHAR_SCALE;
+  return charFeet(d).y - 44 * CHAR_SCALE;
 }
 
 // ---- Mobiliario comun ------------------------------------------------------
@@ -1053,12 +1123,50 @@ function drawSofa() {
   box(x + 0.26, y + 0.3, 17, 0.14, 0.4, 12, '#f2c14e');
 }
 
+// Mesa holográfica en el centro: un anillo por miembro del equipo que se
+// ilumina con su color cuando está trabajando.
+function drawHolo(t, ds) {
+  const { x, y } = HOLO;
+  box(x - 0.45, y - 0.45, 0, 0.9, 0.9, 14, '#2a2d38');
+  const c = iso(x, y, 14);
+  const rx = 0.55 * TW / Math.SQRT2, ry = 0.55 * TH / Math.SQRT2;
+  ctx.fillStyle = '#15131c';
+  ctx.beginPath(); ctx.ellipse(c.x, c.y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createLinearGradient(0, c.y - 70, 0, c.y);
+  g.addColorStop(0, 'rgba(90,200,255,0)');
+  g.addColorStop(1, 'rgba(90,200,255,0.22)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(c.x - rx * 0.8, c.y); ctx.lineTo(c.x - rx * 0.5, c.y - 70); ctx.lineTo(c.x + rx * 0.5, c.y - 70); ctx.lineTo(c.x + rx * 0.8, c.y);
+  ctx.closePath(); ctx.fill();
+  const n = Math.max(1, ds.length);
+  ds.forEach((d, i) => {
+    const a = t / 1400 + (i / n) * Math.PI * 2;
+    const hy = c.y - 38 + Math.sin(t / 700 + i) * 3;
+    const px = c.x + Math.cos(a) * rx * 0.55;
+    const py = hy + Math.sin(a) * ry * 0.55;
+    const col = d.accent || '#7ee08a';
+    ctx.fillStyle = alpha(col, d.busy ? 0.95 : 0.35);
+    ctx.beginPath(); ctx.arc(px, py, d.busy ? 4 : 3, 0, Math.PI * 2); ctx.fill();
+    if (d.busy) {
+      ctx.fillStyle = alpha(col, 0.2);
+      ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+  ctx.strokeStyle = 'rgba(120,210,255,0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.ellipse(c.x, c.y - 38, rx * 0.55, ry * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
 // ---- Gato de la oficina ----------------------------------------------------
 // Pasea por los pasillos (rejilla entre las mesas), se sienta y duerme.
 
-const CAT_XS = [1.05, 3.95, 6.65, 9.35, 11.7];
-const CAT_YS = [1.25, 4.55, 7.55, FRONT_Y];
-const cat = { x: 6.65, y: FRONT_Y, gx: 2, gy: 3, tx: 6.65, ty: FRONT_Y, mode: 'sit', until: 0, dir: 1 };
+const CAT_XS = [1.05, 4.55, 8.1, 11.6];
+const CAT_YS = [1.35, 4.6, 7.7, FRONT_Y];
+const cat = { x: 8.1, y: FRONT_Y, gx: 2, gy: 3, tx: 8.1, ty: FRONT_Y, mode: 'sit', until: 0, dir: 1 };
 
 function updateCat(t, dt) {
   if (cat.mode === 'walk') {
@@ -1150,7 +1258,10 @@ function emitters(ds, t) {
     const f = charFeet(d);
     const head = headTop(d);
     const lid = iso(d.slot.seatX + 0.55, d.slot.cy + 0.02, 48);
-    if (stale || d.state === 'idle') {
+    if (/^capacit/.test(d.label || '')) {
+      emit({ x: f.x + (Math.random() - 0.5) * 30, y: head - 4, vx: (Math.random() - 0.5) * 0.02, vy: -0.022, text: ['📚', '🎓', '💡'][Math.floor(Math.random() * 3)], emoji: true, size: 12, max: 1800 });
+      d.emitAt = t + 700 + Math.random() * 500;
+    } else if (stale) {
       emit({ x: f.x + 12, y: head + 4, vx: 0.012, vy: -0.018, text: 'z', color: '#cfc8de', size: 9 + Math.random() * 4, max: 2400 });
       d.emitAt = t + 1400 + Math.random() * 600;
     } else if (d.state === 'coding' || d.state === 'working') {
@@ -1203,6 +1314,9 @@ function drawParticles() {
     if (p.dot) {
       ctx.fillStyle = p.color;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1 + k * 0.6), 0, Math.PI * 2); ctx.fill();
+    } else if (p.emoji) {
+      ctx.font = `${p.size}px "Segoe UI Emoji", system-ui`;
+      ctx.fillText(p.text, p.x, p.y);
     } else if (p.heart) {
       ctx.font = `${p.size}px "Segoe UI Emoji", system-ui`;
       ctx.fillText('❤️', p.x, p.y);
@@ -1243,8 +1357,7 @@ function drawArrow(d, t) {
 }
 
 function nameOf(d) {
-  const custom = window.PIXEL_AGENT_NAMES ? window.PIXEL_AGENT_NAMES[d.id] : null;
-  return { name: custom || d.project || 'claude', custom: !!custom };
+  return { name: d.name || d.project || 'agente', custom: false };
 }
 
 // Caja del bocadillo (nombre + estado) sobre la cabeza.
@@ -1354,10 +1467,10 @@ function drawHeader() {
   ctx.fillText('Pixel Office', lx + 48, HEADER_H / 2);
 
   const all = Array.from(display.values());
-  const active = all.filter((d) => !isStale(d)).length;
+  const busy = all.filter((d) => d.busy).length;
   let px = lx + 200;
-  px += pill(px, 14, `${agentCount} agente(s)`, '#9aa0a6') + 8;
-  px += pill(px, 14, `${active} activo(s)`, '#6bbf59') + 8;
+  px += pill(px, 14, `equipo: ${agentCount} IAs`, '#9aa0a6') + 8;
+  px += pill(px, 14, busy ? `${busy} trabajando` : 'todos disponibles', busy ? '#f2c14e' : '#6bbf59') + 8;
   const speaking = all.find((d) => isSpeaking(d));
   if (speaking) pill(px, 14, `\u{1F50A} ${clip(nameOf(speaking).name, 12)}`, TARGET_COLOR);
 
@@ -1460,7 +1573,7 @@ let lastT = 0;
 
 function update(t, dt) {
   for (const d of display.values()) {
-    if (d.arrived) continue;
+    if (d.arrived || t < (d.startAt || 0)) continue;
     let step = 0.0028 * dt; // baldosas por ms
     while (step > 0 && d.path.length) {
       const wp = d.path[0];
@@ -1513,12 +1626,13 @@ function frame(t) {
     { k: 23, draw: () => drawPlant(11.5, 11.5, 1.2) },
     { k: 11.9 + 3.2, draw: () => drawPlant(11.6, 3.2, 0.8) },
     { k: cat.x + cat.y, draw: () => drawCat(t) },
+    { k: HOLO.x + HOLO.y, draw: () => drawHolo(t, ds) },
   ];
   for (const d of ds) {
     const s = d.slot;
     if (d.arrived) items.push({ k: s.seatX + s.seatY - 0.3, draw: () => drawChair(d) });
     const f = charFeet(d);
-    items.push({ k: d.x + d.y + 0.01, draw: () => drawCharacter(d, t, f.x, f.y, d.arrived) });
+    if (d.arrived || t >= (d.startAt || 0)) items.push({ k: d.x + d.y + 0.01, draw: () => drawCharacter(d, t, f.x, f.y, d.arrived) });
     items.push({ k: s.cx + s.cy + 0.1, draw: () => drawDesk(d, t) });
   }
   items.sort((a, b) => a.k - b.k);

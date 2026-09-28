@@ -6,12 +6,15 @@ contextBridge.exposeInMainWorld('office', {
   onAgents: (cb) => ipcRenderer.on('agents', (_e, data) => cb(data)),
 });
 
-// Centro de mando: lanzar y dirigir agentes de Claude Code
-contextBridge.exposeInMainWorld('agentApi', {
-  spawn: (opts) => ipcRenderer.invoke('agent:spawn', opts),
-  send: (id, text) => ipcRenderer.invoke('agent:send', { id, text }),
-  interrupt: (id) => ipcRenderer.invoke('agent:interrupt', { id }),
-  stop: (id) => ipcRenderer.invoke('agent:stop', { id }),
+// El equipo: 5 agentes fijos (JARVIS, FRIDAY, TARS, EDITH, KITT)
+contextBridge.exposeInMainWorld('teamApi', {
+  list: () => ipcRenderer.invoke('team:list'),
+  send: (id, text) => ipcRenderer.invoke('team:send', { id, text }),
+  interrupt: (id) => ipcRenderer.invoke('team:interrupt', { id }),
+  reset: (id) => ipcRenderer.invoke('team:reset', { id }),
+  train: (id, topic) => ipcRenderer.invoke('team:train', { id, topic }),
+  forget: (id, topic) => ipcRenderer.invoke('team:forget', { id, topic }),
+  setCwd: (cwd) => ipcRenderer.invoke('team:cwd', { cwd }),
   onEvent: (cb) => ipcRenderer.on('agent:event', (_e, data) => cb(data)),
 });
 

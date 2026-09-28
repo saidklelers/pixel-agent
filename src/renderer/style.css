@@ -634,3 +634,161 @@ button.mini:hover {
   color: #dcefdf;
   font-weight: 600;
 }
+
+/* ---- Equipo fijo ---- */
+
+.team-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.member {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--panel-3);
+  border: 1px solid transparent;
+  cursor: pointer;
+  min-width: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+.member:last-child:nth-child(odd) {
+  grid-column: span 2;
+}
+.member:hover {
+  background: #342c44;
+}
+.member.active {
+  border-color: var(--accent-2);
+  background: #26352a;
+}
+.member.picked {
+  border-color: var(--blue);
+}
+.member.speaking .avatar {
+  box-shadow: 0 0 0 2px var(--accent), 0 0 10px rgba(126, 224, 138, 0.8);
+  animation: talk 0.6s ease-in-out infinite alternate;
+}
+.member .pick {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--blue);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.member .avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+.member-info {
+  min-width: 0;
+}
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0.4px;
+}
+.member-role {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  flex: 0 0 auto;
+}
+.member .dot.busy {
+  background: var(--warn);
+  box-shadow: 0 0 6px rgba(242, 193, 78, 0.7);
+}
+.member .dot.err {
+  background: var(--danger);
+}
+
+.avatar.big {
+  width: 38px;
+  height: 38px;
+  font-size: 17px;
+}
+.profile {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line-soft);
+}
+.profile-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.profile-top > div {
+  flex: 1;
+  min-width: 0;
+}
+.profile-name {
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.profile-role {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.skills-empty {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(126, 224, 138, 0.1);
+  border: 1px solid rgba(126, 224, 138, 0.3);
+  color: #d4f5d8;
+}
+.skill.aprendiendo {
+  background: rgba(242, 193, 78, 0.1);
+  border-color: rgba(242, 193, 78, 0.35);
+  color: #f7e2a8;
+}
+.skill.pendiente {
+  background: rgba(255, 138, 138, 0.1);
+  border-color: rgba(255, 138, 138, 0.3);
+  color: #ffd0d0;
+  cursor: pointer;
+}
+.skill-x {
+  cursor: pointer;
+  opacity: 0.6;
+}
+.skill-x:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+.composer-row button#trainBtn {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}

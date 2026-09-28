@@ -17,67 +17,56 @@
             <span class="logo">🛰️</span>
             <div>
               <div class="chat-title">Centro de mando</div>
-              <div class="chat-sub">Escribe o habla con tus agentes</div>
+              <div class="chat-sub">Tu equipo de 5 IAs</div>
             </div>
           </div>
           <div class="head-actions">
             <button id="ttsBtn" class="icon-btn" title="Leer las respuestas en voz alta">🔊</button>
-            <button id="skipBtn" class="icon-btn" title="Callar a los agentes (Esc)">⏹</button>
-            <button id="newAgent" class="icon-btn add" title="Nuevo agente">＋</button>
+            <button id="skipBtn" class="icon-btn" title="Callar al equipo (Esc)">⏹</button>
           </div>
         </div>
-        <div id="agentList" class="agent-list"></div>
-        <div id="convo" class="convo">
-          <div class="empty-convo">
-            Lanza un agente: escribe una tarea abajo, elige la carpeta y pulsa <b>＋ Agente</b>.
-            El agente aparecerá caminando a un escritorio.
-          </div>
-        </div>
+        <div id="agentList" class="team-list"></div>
+        <div id="convo" class="convo"></div>
         <div id="voiceStatus" class="voice-status" hidden>
           <div class="vs-text"></div>
           <div class="vs-bar"><div class="vs-fill"></div></div>
         </div>
         <div class="composer">
           <div class="targets">
-            <span id="targetInfo" class="target-info">Destino: nuevo agente</span>
+            <span id="targetInfo" class="target-info">🎯 JARVIS</span>
             <span class="target-actions">
               <button id="selAll" class="mini">Todos</button>
-              <button id="selNone" class="mini">Ninguno</button>
+              <button id="selNone" class="mini">Uno</button>
             </span>
           </div>
           <div class="fields">
-            <label class="field" title="Nombre del próximo agente">
-              <span class="field-icon">🏷️</span>
-              <input id="agentName" spellcheck="false" placeholder="Nombre del agente" />
-            </label>
-            <label class="field grow" title="Carpeta de trabajo del próximo agente">
+            <label class="field grow" title="Carpeta del proyecto en el que trabaja el equipo">
               <span class="field-icon">📁</span>
-              <input id="cwd" spellcheck="false" value="C:\Proyectos" />
+              <input id="cwd" spellcheck="false" placeholder="Carpeta del proyecto" />
             </label>
           </div>
           <textarea id="msg" rows="3" placeholder="Escribe una orden… o mantén 🎤 / Ctrl+Espacio y habla"></textarea>
           <div class="composer-row">
-            <button id="micBtn" class="mic" data-state="idle" title="Mantén pulsado para hablar (o Ctrl+Espacio). Un clic corto: graba hasta el siguiente clic.">
+            <button id="micBtn" class="mic" data-state="idle" title="Mantén pulsado para hablar (o Ctrl+Espacio). Un clic: habla y se envía solo al callarte.">
               <span class="mic-ring"></span>
               <span class="mic-icon">🎤</span>
             </button>
-            <button id="spawnBtn" class="primary">＋ Agente</button>
-            <button id="sendBtn">Enviar</button>
-            <button id="stopBtn" class="danger" title="Detener agente">■</button>
+            <button id="sendBtn" class="primary">Enviar</button>
+            <button id="trainBtn" title="Capacitar al destino en el tema escrito en la caja">🎓 Capacitar</button>
+            <button id="stopBtn" class="danger" title="Interrumpir al destino">■</button>
           </div>
           <div id="hint" class="hint"></div>
           <details class="voice-help">
             <summary>🎙️ ¿Qué puedo decir?</summary>
             <ul>
-              <li><b>«Ana, revisa los tests»</b> — habla solo con Ana</li>
-              <li><b>«Ana y Beto: haced un commit»</b> — a varios</li>
-              <li><b>«Todos, actualizad la rama»</b> — difusión</li>
-              <li><b>«Nuevo agente llamado Leo: documenta la API»</b></li>
-              <li><b>«Para» / «Ana, para» / «Todos, paren»</b> — interrumpir</li>
-              <li><b>«Despide a Leo»</b> — cerrar su sesión (pide confirmación)</li>
-              <li><b>«Ana»</b> — elegirla como destino</li>
-              <li><b>«Silencio»</b> — callar las voces</li>
-              <li>Sin nombre, va al destino actual. Clic en un personaje del mapa para elegirlo (Ctrl+clic para marcar varios).</li>
+              <li><b>«JARVIS, planifica el login»</b> — habla con uno (sin nombre va al destino)</li>
+              <li><b>«FRIDAY y EDITH: revisad el formulario»</b> — a varios</li>
+              <li><b>«Todos, actualizad la rama»</b> — a todo el equipo</li>
+              <li><b>«KITT, capacítate en Kubernetes»</b> — aprende algo y lo recuerda siempre</li>
+              <li><b>«Para» / «TARS, para» / «Todos, paren»</b> — interrumpir</li>
+              <li><b>«Reinicia a TARS»</b> — olvida la conversación (pide confirmación)</li>
+              <li><b>«EDITH»</b> — elegirla como destino · <b>«Silencio»</b> — callar las voces</li>
+              <li>Equipo: 🧠 JARVIS arquitectura · 🎨 FRIDAY frontend · 🗄️ TARS backend · 🛡️ EDITH QA y seguridad · 🚀 KITT DevOps</li>
             </ul>
           </details>
         </div>

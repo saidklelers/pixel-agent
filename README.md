@@ -1,13 +1,13 @@
 # Pixel Office
 
-App de escritorio que muestra tus sesiones de **Claude Code** como personajes
-pixel-art trabajando en una oficina virtual en **2.5D (isométrica)**. No depende
-de VS Code: es un observador que lee las transcripciones `.jsonl` que Claude Code
-escribe en `~/.claude/projects/` y anima a cada agente según lo que está haciendo
-de verdad (leyendo, escribiendo código, ejecutando comandos, buscando en la web…).
+App de escritorio con una oficina pixel-art en **2.5D (isométrica)** donde
+trabaja tu equipo de agentes de **Claude Code**, animados según lo que están
+haciendo de verdad (leyendo, escribiendo código, ejecutando comandos, buscando
+en la web…).
 
-Desde el **Centro de mando** (panel derecho) puedes lanzar agentes y darles
-órdenes **escribiendo o hablando**, y ellos te contestan **en voz alta**.
+Desde el **Centro de mando** (panel derecho) diriges a tu **equipo fijo de 5
+IAs** (JARVIS, FRIDAY, TARS, EDITH y KITT), cada una especializada en una parte
+del desarrollo, **escribiendo o hablando**; te contestan **en voz alta**.
 
 ## Requisitos
 - Node.js 18+ (tienes v24, perfecto)
@@ -20,52 +20,72 @@ git pull
 npm install
 npm start
 ```
-Abre una terminal aparte, lanza `claude` en cualquier proyecto y verás aparecer
-a tu primer agente entrando por la puerta y caminando hasta su mesa.
+El equipo entra por la puerta y cada uno va a su mesa. Necesitas tener Claude
+Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
 
 ## La oficina
 - Vista isométrica con puerta de entrada, ventanas, pizarra, reloj real, zona de
   café, sofá y un gato que pasea (haz clic en él 🐱).
 - El cielo de las ventanas y la luz cambian con la hora real (día, atardecer y
   noche, cuando se encienden los portátiles y los flexos).
-- Cada personaje lleva un bocadillo con su nombre y lo que está haciendo.
+- Personajes chibi, cada uno con su estilo (TARS es un robot, KITT lleva el
+  escáner rojo) y un bocadillo con su nombre y lo que está haciendo.
+- En el centro, una mesa holográfica muestra quién está trabajando.
 - **Clic en un personaje** (o en su mesa): pasa a ser el destino de tus órdenes.
   **Ctrl+clic** lo marca para difusión (varios a la vez).
 
-## Hablar con los agentes 🎤
-1. Mantén pulsado el botón **🎤** (o **Ctrl+Espacio**) mientras hablas y suelta
-   para enviar. Un clic corto deja el micro abierto hasta el siguiente clic.
+## Tu equipo: 5 IAs fijas 🤖
+
+| Miembro | De | Especialidad |
+|---|---|---|
+| 🧠 **JARVIS** | Iron Man | Arquitecto y líder técnico: planifica, divide tareas, revisa |
+| 🎨 **FRIDAY** | Iron Man | Frontend y UI/UX |
+| 🗄️ **TARS** | Interstellar | Backend, APIs y bases de datos |
+| 🛡️ **EDITH** | Spider-Man | QA, tests y seguridad |
+| 🚀 **KITT** | El coche fantástico | DevOps: build, CI/CD, git y despliegue |
+
+- Siempre son los mismos cinco. Cada uno es una sesión de Claude Code con su
+  especialidad, y **recuerda la conversación** aunque cierres la app (una por
+  carpeta de proyecto; la carpeta se elige en el campo 📁 del panel).
+- **Capacitaciones**: pídele a uno que se forme en algo concreto («KITT,
+  capacítate en Kubernetes», o escribe el tema y pulsa **🎓 Capacitar**).
+  Investiga el tema, guarda sus notas y desde entonces las tiene siempre en
+  cuenta. Sus capacitaciones aparecen en su ficha (✅ aprendido, ⏳ aprendiendo);
+  con ✕ las olvida.
+- **↺** en la ficha (o «Reinicia a TARS») le hace olvidar la conversación; lo
+  aprendido se conserva.
+- Se guarda todo en `equipo.json`, en la carpeta de datos de la app.
+
+## Hablar con el equipo 🎤
+1. Mantén pulsado **🎤** (o **Ctrl+Espacio**) mientras hablas y suelta para
+   enviar. O haz **un clic y habla**: se envía solo cuando te callas.
    **Esc** cancela.
 2. La primera vez se descarga el modelo de voz (Whisper *base*, ~130 MB) y verás
-   una barra de progreso. Se guarda en la carpeta de datos de la app y las
-   siguientes veces arranca al instante. La transcripción es **local**: el audio
-   no sale de tu PC y no hace falta ninguna clave.
-3. Lo que digas se interpreta como una orden:
+   una barra de progreso. La transcripción es **local**: el audio no sale de tu
+   PC y no hace falta ninguna clave. En la terminal donde lanzaste `npm start`
+   verás `[voz] transcrito: «…»` con lo que ha entendido.
+3. Lo que digas (o escribas) se interpreta como una orden:
 
 | Dices | Qué hace |
 |---|---|
-| «Ana, revisa los tests» | Manda la orden solo a Ana |
-| «Ana y Beto: haced un commit» | A varios agentes a la vez |
-| «Todos, actualizad la rama» | Difusión a todos los agentes activos |
-| «Nuevo agente llamado Leo: documenta la API» | Lanza un agente nuevo con esa tarea |
-| «Nuevo agente llamado Leo» (y luego la tarea) | Te pregunta qué tiene que hacer |
-| «Para» / «Ana, para» / «Todos, paren» | Interrumpe el turno actual |
-| «Despide a Leo» | Cierra la sesión de Leo (pide confirmación; siempre con nombre) |
-| «Ana» | Ana pasa a ser el destino |
-| «Silencio» | Calla las voces de los agentes |
-| Cualquier otra frase | Va al destino actual (si no hay destino, queda escrita en la caja) |
+| «JARVIS, planifica el login» | Solo a JARVIS |
+| «FRIDAY y EDITH: revisad el formulario» | A varios a la vez |
+| «Todos, actualizad la rama» | A todo el equipo |
+| «KITT, capacítate en Kubernetes» | Capacitación (lo recuerda siempre) |
+| «Para» / «TARS, para» / «Todos, paren» | Interrumpe el turno actual |
+| «Reinicia a TARS» | Olvida la conversación (pide confirmación) |
+| «EDITH» | EDITH pasa a ser el destino |
+| «Silencio» | Calla las voces |
+| Cualquier otra frase | Va al destino actual (por defecto, JARVIS) |
 
-Los nombres se reconocen aunque Whisper los escriba distinto (Beto/Veto,
-Uxía/Uxia, Ximo/Chimo…); por eso no se permiten dos agentes con nombres que
-suenen igual. «Para» solo cuenta como orden si es toda la frase: «Ana, para cada
-archivo añade un test» se envía tal cual. «Termina» o «cierra» se envían como
-tarea; solo «despide/elimina a <nombre>» cierra una sesión.
+Los nombres se reconocen aunque Whisper los escriba distinto (Yarvis, Fraidei,
+Kit…). «Para» solo cuenta como orden si es toda la frase.
 
-Mientras grabas, los agentes no hablan (para que el micro no capte su voz). El
+Mientras grabas, el equipo no habla (para que el micro no capte su voz). El
 micro se corta solo a los 2 minutos o al cambiar de ventana.
 
 ### Respuestas habladas 🔊
-- Los agentes leen sus respuestas con las voces en español de Windows (una voz
+- El equipo lee sus respuestas con las voces en español de Windows (una voz
   o un tono distinto por agente). Se omiten los bloques de código y el markdown.
 - **🔊** en la cabecera activa/desactiva la lectura; **⏹** (o **Esc**) calla a
   todos. Al pulsar el micro, los agentes se callan para escucharte.
@@ -93,10 +113,10 @@ Genera en `dist/` un instalador (`Pixel Office Setup x.y.z.exe`). Al instalarlo
 crea automáticamente el **acceso directo en el escritorio** y en el menú inicio.
 
 ## Cómo funciona
-- `src/main.js` — proceso principal de Electron. Cada ~0.7 s lee lo nuevo de
-  cada `.jsonl`, traduce los eventos (`tool_use`, mensajes, etc.) a un estado y
-  envía la foto al render por IPC. También lanza los agentes del Centro de mando
-  (Claude Agent SDK) y gestiona el permiso del micrófono (solo audio).
+- `src/team.js` — el equipo: nombres, especialidades, aspecto y prompts.
+- `src/main.js` — proceso principal de Electron: sesiones del equipo con el
+  Claude Agent SDK (reanudables), capacitaciones, estado para el render y
+  permiso del micrófono (solo audio).
 - `src/stt-worker.js` — motor de voz: Whisper local en un proceso aparte
   (`utilityProcess`) para no congelar la ventana.
 - `src/renderer/renderer.js` — dibuja la oficina isométrica en un canvas.
@@ -105,9 +125,6 @@ crea automáticamente el **acceso directo en el escritorio** y en el menú inici
 - `src/renderer/voice-commands.js` — intérprete de órdenes habladas.
 - `src/preload.js` — puente seguro entre proceso principal y render.
 
-### Cambiar la carpeta de proyectos
-Por defecto usa `~/.claude/projects`. Para apuntar a otra, define la variable de
-entorno `CLAUDE_PROJECTS_DIR` antes de arrancar.
 
 ## Ideas para ampliar
 - Sprites reales (PNG) en vez de personajes dibujados a mano.

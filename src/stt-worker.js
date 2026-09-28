@@ -21,11 +21,29 @@ function status(state, extra) {
   port.postMessage(Object.assign({ type: 'status', state }, extra || {}));
 }
 
+// transformers carga "sharp" (procesado de imágenes) al arrancar aunque la voz
+// no lo use. Si su binario nativo falla (pasa en algunos Windows), ponemos un
+// sustituto para que la transcripción funcione igual.
+function loadTransformers() {
+  try {
+    require('sharp');
+  } catch (e) {
+    console.warn('[voz] sharp no disponible (' + (e && e.message) + '); se usa un sustituto');
+    const Module = require('module');
+    const origLoad = Module._load;
+    Module._load = function (request, ...rest) {
+      if (request === 'sharp') return function sharpNoDisponible() { throw new Error('sharp no disponible'); };
+      return origLoad.call(this, request, ...rest);
+    };
+  }
+  return require('@huggingface/transformers');
+}
+
 function load() {
   if (asrPromise) return asrPromise;
   if (!config) return Promise.reject(new Error('motor de voz sin configurar'));
   asrPromise = (async () => {
-    const { pipeline, env } = await import('@huggingface/transformers');
+    const { pipeline, env } = loadTransformers();
     env.cacheDir = config.cacheDir;
     env.allowLocalModels = false;
 

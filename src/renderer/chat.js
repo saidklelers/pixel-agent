@@ -1,26 +1,24 @@
 'use strict';
 
 // ---------------------------------------------------------------------------
-// Centro de mando: lanza y dirige agentes de Claude Code desde la oficina.
-// - Casilla por agente: elige quiénes reciben la orden (difusión a varios).
-// - "Todos / Ninguno": atajos de selección.
-// - Enviar manda la misma instrucción a todos los marcados a la vez; si no
-//   hay ninguno marcado, va al agente que estás viendo.
+// Centro de mando: tu equipo fijo de 5 IAs (JARVIS, FRIDAY, TARS, EDITH y
+// KITT), cada una especializada en una parte del desarrollo.
+// - Clic en una tarjeta o en su personaje: pasa a ser el destino.
+// - Casillas: marca varios para mandarles la misma orden (difusión).
 // - Voz: 🎤 (o Ctrl+Espacio) graba, Whisper transcribe en local y la frase se
-//   interpreta como orden (voice-commands.js): "Ana, revisa…", "todos, paren",
-//   "nuevo agente llamado Leo: …". Las respuestas se leen en voz alta.
-// - Clic en un personaje del canvas: pasa a ser el destino.
-// Habla con el proceso principal por IPC (window.agentApi / window.voiceApi).
+//   interpreta como orden (voice-commands.js): "JARVIS, revisa…", "todos,
+//   paren", "KITT, capacítate en Kubernetes". Las respuestas se leen en voz alta.
+// - Lo escrito pasa por el mismo intérprete, así "EDITH, …" también funciona.
+// Habla con el proceso principal por IPC (window.teamApi / window.voiceApi).
 // ---------------------------------------------------------------------------
 
 const el = (id) => document.getElementById(id);
-const agentListEl = el('agentList');
+const teamListEl = el('agentList');
 const convoEl = el('convo');
 const cwdEl = el('cwd');
 const msgEl = el('msg');
 const hintEl = el('hint');
 const targetInfoEl = el('targetInfo');
-const agentNameEl = el('agentName');
 const micBtn = el('micBtn');
 const ttsBtn = el('ttsBtn');
 const skipBtn = el('skipBtn');
@@ -28,13 +26,12 @@ const voiceStatusEl = el('voiceStatus');
 
 const VC = window.VoiceCommands;
 const PV = window.PixelVoice;
+const api = window.teamApi;
 const voiceIpc = window.voiceApi;
 
 // Estado compartido con el canvas (renderer.js):
-// - PIXEL_AGENT_NAMES: sessionId -> nombre (etiqueta del personaje)
-// - PIXEL_TARGET_SESSIONS: sessionIds que recibirán la próxima orden
-// - PIXEL_SPEAKING_SESSION: sessionId del agente que está hablando
-window.PIXEL_AGENT_NAMES = window.PIXEL_AGENT_NAMES || {};
+// - PIXEL_TARGET_SESSIONS: ids de los miembros que recibirán la próxima orden
+// - PIXEL_SPEAKING_SESSION: id del miembro que está hablando en voz alta
 window.PIXEL_TARGET_SESSIONS = new Set();
 window.PIXEL_SPEAKING_SESSION = null;
 
@@ -42,431 +39,371 @@ window.addEventListener('error', (e) => {
   console.error('CHAT-ERROR:', e.message, '@', (e.filename || '').split(/[\\/]/).pop() + ':' + e.lineno);
 });
 
-const NAME_POOL = ['Ana', 'Beto', 'Carla', 'Diego', 'Elena', 'Fran', 'Gabi', 'Hugo',
-  'Iris', 'Javi', 'Kira', 'Leo', 'Marta', 'Nico', 'Olga', 'Pablo', 'Quim', 'Rosa',
-  'Sergio', 'Tania', 'Uxía', 'Vera', 'Wendy', 'Ximo', 'Yago', 'Zoe'];
-
-const agents = new Map(); // id -> { num, name, cwd, sessionId, status, messages: [] }
+const team = new Map(); // id -> { id, name, role, from, emoji, aliases, look, skills, index, status, messages }
 const selected = new Set(); // ids marcados para difusión
-let activeId = null;
-let counter = 0;
-
-function usedNames() {
-  return new Set([...agents.values()].map((a) => (a.name || '').toLowerCase()));
-}
-function suggestName() {
-  const used = usedNames();
-  for (const n of NAME_POOL) if (!used.has(n.toLowerCase())) return n;
-  return 'Agente ' + (agents.size + 1);
-}
-// Evita dos agentes con nombres iguales o que SUENAN igual (Ana/Anna,
-// Gabi/Gaby): por voz no se podrían distinguir.
-function nameKey(n) { return VC ? VC.phonKey(n) : String(n).toLowerCase(); }
-function uniqueName(name) {
-  const used = new Set([...agents.values()].filter((a) => a.name).map((a) => nameKey(a.name)));
-  if (!used.has(nameKey(name))) return name;
-  for (let i = 2; ; i++) if (!used.has(nameKey(`${name} ${i}`))) return `${name} ${i}`;
-}
+let activeId = 'jarvis';
 
 function hint(text, isErr) {
   hintEl.textContent = text || '';
   hintEl.classList.toggle('err', !!isErr);
 }
 
-function shortName(a) {
-  if (a.name) return a.name;
-  const base = a.cwd ? a.cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : 'claude';
-  return `#${a.num} ${base || 'claude'}`;
-}
-
-function isLive(a) { return a && a.status !== 'closed'; }
-
-// Agentes que recibirán el próximo Enviar.
+// Destinatarios de la próxima orden (siempre hay alguno: por defecto JARVIS).
 function targets() {
-  if (selected.size) return [...selected].filter((id) => agents.has(id));
-  if (activeId && agents.has(activeId)) return [activeId];
-  return [];
+  if (selected.size) return [...selected].filter((id) => team.has(id));
+  if (team.has(activeId)) return [activeId];
+  return team.size ? [team.keys().next().value] : [];
 }
+
+function namesOf(ids) { return ids.map((id) => (team.get(id) || {}).name || id).join(', '); }
 
 function syncCanvas() {
-  const s = new Set();
-  for (const id of targets()) {
-    const a = agents.get(id);
-    if (a && a.sessionId) s.add(a.sessionId);
-  }
-  window.PIXEL_TARGET_SESSIONS = s;
-  const speakingKey = PV ? PV.speaker.speakingKey() : null;
-  const sp = speakingKey && agents.get(speakingKey);
-  window.PIXEL_SPEAKING_SESSION = sp ? sp.sessionId : null;
+  window.PIXEL_TARGET_SESSIONS = new Set(targets());
+  window.PIXEL_SPEAKING_SESSION = PV ? PV.speaker.speakingKey() : null;
 }
 
 function updateTargetInfo() {
   const t = targets();
-  let txt;
-  let broadcast = false;
-  if (selected.size) {
-    txt = `🎯 ${t.length} agente(s) a la vez`;
-    broadcast = t.length > 1;
-  } else if (activeId && agents.has(activeId)) {
-    txt = `🎯 ${shortName(agents.get(activeId))}`;
-  } else {
-    txt = '🎯 Nuevo agente';
-  }
-  targetInfoEl.textContent = txt;
+  const broadcast = selected.size > 1;
+  targetInfoEl.textContent = broadcast ? `🎯 ${t.length} a la vez: ${namesOf(t)}` : `🎯 ${namesOf(t)}`;
   targetInfoEl.classList.toggle('broadcast', broadcast);
   syncCanvas();
 }
 
-// Círculo con la inicial y el color de camiseta del personaje.
-function avatar(a) {
+function avatar(m, big) {
   const av = document.createElement('span');
-  av.className = 'avatar';
-  const look = a.sessionId && window.PixelOffice ? window.PixelOffice.lookFor(a.sessionId) : null;
-  av.style.background = look ? look.shirt : `hsl(${(a.num * 67) % 360} 45% 55%)`;
-  av.textContent = (shortName(a).replace(/^#\d+\s*/, '') || '?').charAt(0).toUpperCase();
+  av.className = 'avatar' + (big ? ' big' : '');
+  av.style.background = m.look ? m.look.shirt : '#555';
+  av.style.color = m.look && m.look.accent ? m.look.accent : '#fff';
+  av.textContent = m.name.charAt(0);
   return av;
 }
 
-function renderAgentList() {
-  agentListEl.innerHTML = '';
+function skillsDone(m) { return (m.skills || []).filter((k) => k.status === 'aprendido').length; }
+
+function renderTeam() {
+  teamListEl.innerHTML = '';
   const speakingKey = PV ? PV.speaker.speakingKey() : null;
-  for (const a of agents.values()) {
-    const chip = document.createElement('div');
-    chip.className = 'agent-chip' + (a.id === activeId ? ' active' : '') +
-      (selected.has(a.id) ? ' picked' : '') + (a.id === speakingKey ? ' speaking' : '') +
-      (a.status === 'closed' ? ' closed' : '');
-    chip.title = a.cwd;
+  for (const m of team.values()) {
+    const card = document.createElement('div');
+    card.className = 'member' + (m.id === activeId && !selected.size ? ' active' : '') +
+      (selected.has(m.id) ? ' picked' : '') + (m.id === speakingKey ? ' speaking' : '');
+    card.title = `${m.name} (${m.from}) — ${m.role}`;
 
     const pick = document.createElement('input');
     pick.type = 'checkbox';
     pick.className = 'pick';
-    pick.checked = selected.has(a.id);
+    pick.checked = selected.has(m.id);
     pick.title = 'Marcar para difusión';
     pick.addEventListener('click', (e) => e.stopPropagation());
     pick.addEventListener('change', () => {
-      if (pick.checked) selected.add(a.id); else selected.delete(a.id);
-      renderAgentList();
+      if (pick.checked) selected.add(m.id); else selected.delete(m.id);
+      renderTeam();
     });
 
+    const info = document.createElement('div');
+    info.className = 'member-info';
+    const name = document.createElement('div');
+    name.className = 'member-name';
+    name.textContent = m.name;
     const dot = document.createElement('span');
-    dot.className = 'dot ' + (a.status === 'busy' ? 'busy' : a.status === 'live' ? 'live' : '');
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = shortName(a);
+    dot.className = 'dot ' + (m.status === 'busy' ? 'busy' : m.status === 'error' ? 'err' : 'live');
+    name.appendChild(dot);
+    const role = document.createElement('div');
+    role.className = 'member-role';
+    const learned = skillsDone(m);
+    const learning = (m.skills || []).some((k) => k.status === 'aprendiendo');
+    role.textContent = m.emoji + ' ' + m.role + (learned ? ` · 🎓${learned}` : '') + (learning ? ' · ⏳' : '');
+    info.appendChild(name);
+    info.appendChild(role);
 
-    const del = document.createElement('span');
-    del.className = 'chip-del';
-    del.textContent = '✕';
-    del.title = 'Eliminar agente';
-    del.addEventListener('click', (e) => { e.stopPropagation(); deleteAgent(a.id); });
-
-    chip.appendChild(pick);
-    chip.appendChild(avatar(a));
-    chip.appendChild(name);
-    chip.appendChild(dot);
-    chip.appendChild(del);
-    chip.addEventListener('click', () => { activeId = a.id; renderAgentList(); renderConvo(); hint(`Seleccionado: ${shortName(a)} (Enviar le hablará a este)`); });
-    agentListEl.appendChild(chip);
+    card.appendChild(pick);
+    card.appendChild(avatar(m));
+    card.appendChild(info);
+    card.addEventListener('click', () => focusMember(m.id));
+    teamListEl.appendChild(card);
   }
   updateTargetInfo();
 }
 
+function focusMember(id, additive) {
+  if (!team.has(id)) return;
+  if (additive) {
+    if (selected.has(id)) selected.delete(id); else selected.add(id);
+  } else {
+    selected.clear();
+    activeId = id;
+  }
+  renderTeam();
+  renderConvo();
+}
+
+// Ficha del miembro activo: especialidad y capacitaciones.
+function renderProfile(m) {
+  const box = document.createElement('div');
+  box.className = 'profile';
+  const top = document.createElement('div');
+  top.className = 'profile-top';
+  top.appendChild(avatar(m, true));
+  const txt = document.createElement('div');
+  txt.innerHTML = '<div class="profile-name"></div><div class="profile-role"></div>';
+  txt.querySelector('.profile-name').textContent = `${m.name}`;
+  txt.querySelector('.profile-role').textContent = `${m.emoji} ${m.role} · IA de «${m.from}»`;
+  top.appendChild(txt);
+  const reset = document.createElement('button');
+  reset.className = 'mini';
+  reset.textContent = '↺';
+  reset.title = 'Reiniciar conversación (lo aprendido se conserva)';
+  reset.addEventListener('click', () => resetIds([m.id]));
+  top.appendChild(reset);
+  box.appendChild(top);
+
+  const skills = document.createElement('div');
+  skills.className = 'skills';
+  if (!(m.skills || []).length) {
+    skills.innerHTML = '<span class="skills-empty">🎓 Sin capacitaciones aún. Escribe un tema y pulsa 🎓, o di «' +
+      m.name + ', capacítate en …».</span>';
+  }
+  for (const k of m.skills || []) {
+    const chip = document.createElement('span');
+    chip.className = 'skill ' + (k.status || '');
+    const icon = k.status === 'aprendido' ? '✅' : k.status === 'aprendiendo' ? '⏳' : '⚠️';
+    chip.textContent = `${icon} ${k.topic}`;
+    chip.title = k.status === 'aprendido' ? 'Aprendido: lo tiene en cuenta siempre'
+      : k.status === 'aprendiendo' ? 'Capacitándose…' : 'No terminó: pulsa para reintentar';
+    if (k.status !== 'aprendiendo' && k.status !== 'aprendido') chip.addEventListener('click', () => trainIds([m.id], k.topic));
+    const x = document.createElement('span');
+    x.className = 'skill-x';
+    x.textContent = '✕';
+    x.title = 'Olvidar';
+    x.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!window.confirm(`¿Que ${m.name} olvide «${k.topic}»?`)) return;
+      await api.forget(m.id, k.topic);
+      await refreshTeam();
+    });
+    chip.appendChild(x);
+    skills.appendChild(chip);
+  }
+  box.appendChild(skills);
+  return box;
+}
+
 function renderConvo() {
   convoEl.innerHTML = '';
-  const a = agents.get(activeId);
-  if (!a) {
+  const m = team.get(activeId);
+  if (!m) return;
+  convoEl.appendChild(renderProfile(m));
+  if (!m.messages.length) {
     const d = document.createElement('div');
     d.className = 'empty-convo';
-    d.innerHTML = '<div class="empty-icon">🎙️</div>Selecciona o lanza un agente para ver su conversación.' +
-      '<br><br>Escribe una tarea y pulsa <b>＋ Agente</b>, o mantén <b>🎤</b> y di<br>' +
-      '<i>«Nuevo agente llamado Leo: revisa los tests»</i>.';
+    d.innerHTML = `Habla o escribe a <b>${m.name}</b>. Mantén <b>🎤</b> (o Ctrl+Espacio), o haz un clic y habla:` +
+      ' se envía solo al callarte.<br><br><i>«' + m.name + ', …»</i> para dirigirte a alguien del equipo.';
     convoEl.appendChild(d);
-    return;
   }
-  for (const m of a.messages) {
-    if (m.role === 'assistant') {
+  for (const msg of m.messages) {
+    if (msg.role === 'assistant') {
       const row = document.createElement('div');
       row.className = 'msg-row';
-      row.appendChild(avatar(a));
+      row.appendChild(avatar(m));
       const b = document.createElement('div');
       b.className = 'bubble assistant';
-      b.textContent = m.text;
+      b.textContent = msg.text;
       row.appendChild(b);
       convoEl.appendChild(row);
       continue;
     }
     const div = document.createElement('div');
-    if (m.role === 'user') {
-      div.className = 'bubble user' + (m.voice ? ' voice' : '');
-      div.textContent = (m.voice ? '🎤 ' : '') + m.text;
-    } else if (m.role === 'tool') { div.className = 'line-tool'; div.textContent = '⚙️ ' + m.text; }
-    else if (m.role === 'error') { div.className = 'line-error'; div.textContent = '⚠️ ' + m.text; }
-    else { div.className = 'line-system'; div.textContent = m.text; }
+    if (msg.role === 'user') {
+      div.className = 'bubble user' + (msg.voice ? ' voice' : '');
+      div.textContent = (msg.voice ? '🎤 ' : '') + msg.text;
+    } else if (msg.role === 'tool') { div.className = 'line-tool'; div.textContent = '⚙️ ' + msg.text; }
+    else if (msg.role === 'error') { div.className = 'line-error'; div.textContent = '⚠️ ' + msg.text; }
+    else { div.className = 'line-system'; div.textContent = msg.text; }
     convoEl.appendChild(div);
   }
   convoEl.scrollTop = convoEl.scrollHeight;
 }
 
 function push(id, role, text, extra) {
-  const a = agents.get(id);
-  if (!a) return;
-  a.messages.push(Object.assign({ role, text }, extra || {}));
+  const m = team.get(id);
+  if (!m) return;
+  m.messages.push(Object.assign({ role, text }, extra || {}));
+  if (m.messages.length > 300) m.messages.splice(0, m.messages.length - 300);
   if (id === activeId) renderConvo();
 }
 
 function setStatus(id, status) {
-  const a = agents.get(id);
-  if (a) { a.status = status; renderAgentList(); }
+  const m = team.get(id);
+  if (m && m.status !== status) { m.status = status; renderTeam(); }
+}
+
+async function refreshTeam() {
+  if (!api) return;
+  const data = await api.list();
+  if (data.cwd && document.activeElement !== cwdEl) cwdEl.value = data.cwd;
+  data.members.forEach((pm, index) => {
+    const m = team.get(pm.id);
+    if (m) Object.assign(m, { skills: pm.skills });
+    else team.set(pm.id, Object.assign({}, pm, { index, status: pm.busy ? 'busy' : 'live', messages: [] }));
+  });
+  renderTeam();
+  renderConvo();
 }
 
 // ---- Acciones --------------------------------------------------------------
 
-// opts: { prompt, name, voice } — sin prompt usa la caja de texto.
-async function spawn(opts) {
-  const o = opts && typeof opts === 'object' && !(opts instanceof Event) ? opts : {};
-  const fromBox = o.prompt == null;
-  const prompt = String(fromBox ? msgEl.value : o.prompt).trim();
-  console.log('spawn(): texto=' + prompt.length + ' chars, api=' + !!(window.agentApi && window.agentApi.spawn));
-  if (!prompt) { msgEl.focus(); hint('✍️ Escribe primero una tarea en la caja grande, luego pulsa ＋ Agente.', true); return; }
-  const cwd = cwdEl.value.trim();
-  const name = uniqueName(o.name || agentNameEl.value.trim() || suggestName());
-  hint('Lanzando agente…');
-  try {
-    const res = await window.agentApi.spawn({ cwd, prompt });
-    if (!res || res.error) { hint('Error: ' + ((res && res.error) || 'desconocido'), true); return; }
-    if (!agents.has(res.id)) {
-      counter += 1;
-      agents.set(res.id, { id: res.id, num: counter, name, cwd: res.cwd || cwd, sessionId: null, status: 'busy', messages: [] });
-    } else {
-      agents.get(res.id).name = name;
-    }
-    activeId = res.id;
-    push(res.id, 'user', prompt, { voice: !!o.voice });
-    renderAgentList();
-    renderConvo();
-    if (fromBox) msgEl.value = '';
-    agentNameEl.value = suggestName();
-    hint(`Agente "${name}" lanzado. Aparecerá caminando a su escritorio.`);
-  } catch (e) {
-    hint('Error al lanzar: ' + (e && e.message ? e.message : e), true);
-  }
-}
-
-// Manda el mismo texto a varios agentes. Devuelve cuántos lo recibieron.
 async function sendTo(ids, text, extra) {
   let sent = 0;
   for (const id of ids) {
     try {
-      const res = await window.agentApi.send(id, text);
-      if (res && res.ok === false) continue;
+      const res = await api.send(id, text);
+      if (res && res.ok === false) { push(id, 'error', res.error || 'no se pudo enviar'); continue; }
       push(id, 'user', text, extra);
       setStatus(id, 'busy');
       sent += 1;
-    } catch (_) { /* sigue con los demás */ }
+    } catch (e) {
+      push(id, 'error', String(e && e.message ? e.message : e));
+    }
   }
   return sent;
-}
-
-async function send() {
-  const t = targets();
-  if (!t.length) { spawn(); return; }
-  const text = msgEl.value.trim();
-  if (!text) { msgEl.focus(); return; }
-  const sent = await sendTo(t, text);
-  msgEl.value = '';
-  hint(sent > 1 ? `Orden enviada a ${sent} agentes a la vez.` : sent === 1 ? '' : 'No se pudo enviar.', sent === 0);
-}
-
-async function stopIds(ids) {
-  for (const id of ids) {
-    if (PV) PV.speaker.forget(id);
-    try { await window.agentApi.stop(id); } catch (_) { /* noop */ }
-  }
 }
 
 async function interruptIds(ids) {
   for (const id of ids) {
     if (PV) PV.speaker.forget(id);
-    try { await window.agentApi.interrupt(id); } catch (_) { /* noop */ }
+    try { await api.interrupt(id); } catch (_) { /* noop */ }
+    push(id, 'system', '✋ interrumpido');
   }
 }
 
-async function stop() {
-  await stopIds(targets());
-}
-
-async function deleteAgent(id) {
-  await stopIds([id]);
-  const a = agents.get(id);
-  if (a && a.sessionId) delete window.PIXEL_AGENT_NAMES[a.sessionId];
-  agents.delete(id);
-  selected.delete(id);
-  if (activeId === id) activeId = agents.size ? agents.keys().next().value : null;
-  renderAgentList();
-  renderConvo();
-  hint('Agente eliminado.');
-}
-
-function selectAll() {
-  for (const id of agents.keys()) selected.add(id);
-  renderAgentList();
-}
-function selectNone() {
-  selected.clear();
-  renderAgentList();
-}
-
-// Elige destino: uno solo pasa a ser el activo; varios quedan marcados.
-function selectIds(ids) {
-  selected.clear();
-  if (ids.length === 1) activeId = ids[0];
-  else for (const id of ids) selected.add(id);
-  renderAgentList();
-  renderConvo();
-}
-
-el('spawnBtn').addEventListener('click', () => spawn());
-el('sendBtn').addEventListener('click', send);
-el('newAgent').addEventListener('click', () => { msgEl.focus(); hint('Escribe la tarea y pulsa ＋ Agente (o dila con 🎤).'); });
-el('stopBtn').addEventListener('click', stop);
-el('selAll').addEventListener('click', selectAll);
-el('selNone').addEventListener('click', selectNone);
-msgEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
-});
-
-// ---- Clic en un personaje del canvas ---------------------------------------
-
-window.addEventListener('pixel:pick', (e) => {
-  const d = e.detail || {};
-  const a = [...agents.values()].find((x) => x.sessionId && x.sessionId === d.sessionId);
-  if (!a) {
-    hint('Ese personaje es una sesión de Claude Code abierta fuera de la app: solo puedes dar órdenes a los agentes lanzados desde aquí.', true);
-    return;
+async function resetIds(ids) {
+  if (!window.confirm(`¿Reiniciar la conversación de ${namesOf(ids)}?\n\nOlvidarán lo hablado en esta carpeta; lo aprendido en capacitaciones se conserva.`)) {
+    hint('Cancelado.');
+    return false;
   }
-  if (d.additive) {
-    if (selected.has(a.id)) selected.delete(a.id); else selected.add(a.id);
-    hint(`${selected.has(a.id) ? 'Marcado' : 'Desmarcado'}: ${shortName(a)} (${selected.size} para difusión)`);
-  } else {
-    selected.clear();
-    activeId = a.id;
-    hint(`🎯 Hablando con ${shortName(a)}: mantén 🎤 (o Ctrl+Espacio) y habla, o escribe.`);
+  for (const id of ids) {
+    if (PV) PV.speaker.forget(id);
+    try { await api.reset(id); } catch (_) { /* noop */ }
+    const m = team.get(id);
+    if (m) m.messages = [];
+    push(id, 'system', '↺ conversación reiniciada');
   }
-  renderAgentList();
-  renderConvo();
-});
-
-// ---- Voz: órdenes habladas -------------------------------------------------
-
-let pendingSpawn = null; // { name, until } tras "nuevo agente llamado X" sin tarea
-const PENDING_SPAWN_MS = 30000;
-
-function liveAgents() { return [...agents.values()].filter(isLive); }
-
-function resolveTo(to) {
-  if (to === 'all') return { ids: liveAgents().map((a) => a.id), missing: [] };
-  const ids = [];
-  const missing = [];
-  for (const n of to || []) {
-    const k = VC.phonKey(n);
-    const a = liveAgents().find((x) => VC.phonKey(shortName(x)) === k);
-    if (a && !ids.includes(a.id)) ids.push(a.id);
-    else if (!a) missing.push(n);
-  }
-  return { ids, missing };
+  hint(`↺ Reiniciado: ${namesOf(ids)}`);
+  return true;
 }
 
-function namesOf(ids) {
-  return ids.map((id) => shortName(agents.get(id))).join(', ');
+async function trainIds(ids, topic, extra) {
+  const t = String(topic || '').trim();
+  if (!t) { hint('🎓 Escribe primero el tema de la capacitación (p. ej. «Kubernetes»).', true); msgEl.focus(); return 0; }
+  let ok = 0;
+  for (const id of ids) {
+    const res = await api.train(id, t);
+    if (res && res.ok) {
+      ok += 1;
+      push(id, 'user', `🎓 Capacítate en «${t}»`, extra);
+      push(id, 'system', `⏳ ${team.get(id).name} está investigando «${t}»…`);
+      setStatus(id, 'busy');
+    } else {
+      push(id, 'error', (res && res.error) || 'no se pudo iniciar la capacitación');
+    }
+  }
+  await refreshTeam();
+  return ok;
 }
 
-async function runVoiceCommand(text) {
-  const heard = `🎤 «${text}»`;
-  const cmd = VC.parseCommand(text, liveAgents().map(shortName));
-  console.log('voz: ' + JSON.stringify(cmd));
-
-  // "nuevo agente llamado Leo" + (siguiente frase) "revisa los tests"
-  if (pendingSpawn && Date.now() > pendingSpawn.until) pendingSpawn = null;
-  if (pendingSpawn && cmd.type === 'send' && !cmd.to && cmd.text) {
-    const name = pendingSpawn.name;
-    pendingSpawn = null;
-    await spawn({ prompt: cmd.text, name, voice: true });
-    return;
-  }
-  pendingSpawn = null;
+// Interpreta una frase (hablada o escrita) y la ejecuta.
+async function runCommand(text, voice) {
+  const heard = voice ? `🎤 «${text}»` : '✍️';
+  const cmd = VC ? VC.parseCommand(text, [...team.values()].map((m) => ({ name: m.name, aliases: m.aliases }))) : { type: 'send', to: null, text };
+  console.log('orden: ' + JSON.stringify(cmd));
+  const extra = { voice: !!voice };
+  const resolve = (to) => (to === 'all' ? [...team.keys()] : to ? to.map((n) => [...team.values()].find((m) => m.name === n)).filter(Boolean).map((m) => m.id) : targets());
 
   switch (cmd.type) {
     case 'empty':
-      hint('🎤 No te he entendido. Prueba otra vez.', true);
+      hint('No te he entendido. Prueba otra vez.', true);
       return;
-
     case 'silence':
       if (PV) PV.speaker.stopAll();
       hint(`${heard} → 🔇 silencio`);
       return;
-
-    case 'spawn':
-      if (!cmd.text) {
-        pendingSpawn = { name: cmd.name, until: Date.now() + PENDING_SPAWN_MS };
-        if (cmd.name) agentNameEl.value = cmd.name;
-        hint(`${heard} → ¿Qué tiene que hacer ${cmd.name || 'el nuevo agente'}? Dímelo ahora.`);
-        return;
-      }
-      await spawn({ prompt: cmd.text, name: cmd.name, voice: true });
-      return;
-
     case 'select': {
-      const r = resolveTo(cmd.to);
-      if (!r.ids.length) { hint(`${heard} → no hay ningún agente activo con ese nombre.`, true); return; }
-      selectIds(r.ids);
-      hint(`${heard} → 🎯 ahora hablas con ${namesOf(r.ids)}`);
+      const ids = resolve(cmd.to);
+      selected.clear();
+      if (ids.length === 1) activeId = ids[0]; else ids.forEach((id) => selected.add(id));
+      renderTeam();
+      renderConvo();
+      hint(`${heard} → 🎯 ahora hablas con ${namesOf(ids)}`);
       return;
     }
-
-    case 'interrupt':
-    case 'stop': {
-      const r = cmd.to ? resolveTo(cmd.to) : { ids: targets(), missing: [] };
-      if (!r.ids.length) { hint(`${heard} → no hay a quién detener.`, true); return; }
-      if (cmd.type === 'stop') {
-        // Cerrar sesiones no se deshace: pedimos confirmación.
-        if (!window.confirm(`¿Cerrar la sesión de ${namesOf(r.ids)}?\n\n(Has dicho: «${text}»)`)) {
-          hint(`${heard} → cancelado, no se ha cerrado nada.`);
-          return;
-        }
-        await stopIds(r.ids);
-        for (const id of r.ids) push(id, 'system', '■ sesión cerrada por voz');
-        hint(`${heard} → ■ cerrado: ${namesOf(r.ids)}`);
-      } else {
-        await interruptIds(r.ids);
-        for (const id of r.ids) push(id, 'system', '✋ interrumpido por voz');
-        hint(`${heard} → ✋ interrumpido: ${namesOf(r.ids)}`);
-      }
+    case 'interrupt': {
+      const ids = resolve(cmd.to);
+      await interruptIds(ids);
+      hint(`${heard} → ✋ interrumpido: ${namesOf(ids)}`);
       return;
     }
-
+    case 'reset':
+      await resetIds(resolve(cmd.to));
+      return;
+    case 'train': {
+      const ids = resolve(cmd.to);
+      if (ids.length === 1 && !selected.size) { activeId = ids[0]; renderTeam(); }
+      const n = await trainIds(ids, cmd.topic, extra);
+      if (n) hint(`${heard} → 🎓 ${namesOf(ids)} se capacita en «${cmd.topic}»`);
+      return;
+    }
     case 'send':
     default: {
-      let ids;
-      if (cmd.to) {
-        const r = resolveTo(cmd.to);
-        if (!r.ids.length) { hint(`${heard} → no hay ningún agente activo llamado ${r.missing.join(', ')}.`, true); return; }
-        ids = r.ids;
-        if (ids.length === 1 && !selected.size) { activeId = ids[0]; renderAgentList(); renderConvo(); }
-      } else {
-        ids = targets();
-      }
-      if (!ids.length) {
-        // Sin destino no lanzamos agentes "a ciegas": lo dejamos en la caja.
-        msgEl.value = cmd.text;
-        hint(`${heard} → no hay destino. Pulsa ＋ Agente para lanzarlo con esa tarea, di «nuevo agente…» o elige un personaje.`, true);
-        return;
-      }
-      const sent = await sendTo(ids, cmd.text, { voice: true });
-      if (!sent) hint(`${heard} → no se pudo enviar.`, true);
-      else hint(`${heard} → ${sent > 1 ? `enviado a ${sent} agentes` : `enviado a ${namesOf(ids)}`}`);
+      const ids = resolve(cmd.to);
+      if (cmd.to && ids.length === 1 && !selected.size) { activeId = ids[0]; renderTeam(); renderConvo(); }
+      const body = cmd.text || text;
+      const sent = await sendTo(ids, body, extra);
+      if (!sent) hint(`${heard} → no se pudo enviar (mira el chat de ${namesOf(ids)}).`, true);
+      else hint(`${heard} → enviado a ${namesOf(ids)}`);
     }
   }
 }
+
+async function send() {
+  const text = msgEl.value.trim();
+  if (!text) { msgEl.focus(); return; }
+  msgEl.value = '';
+  await runCommand(text, false);
+}
+
+async function trainFromBox() {
+  const topic = msgEl.value.trim().replace(/^(?:capac[ií]tate|aprende|especial[ií]zate)\s+(?:en|sobre)?\s*/i, '');
+  const ids = targets();
+  const n = await trainIds(ids, topic);
+  if (n) { msgEl.value = ''; hint(`🎓 ${namesOf(ids)} se capacita en «${topic}»`); }
+}
+
+async function applyCwd() {
+  const res = await api.setCwd(cwdEl.value);
+  if (res && res.ok) hint(`📁 Carpeta de trabajo: ${res.cwd}. Cada miembro retoma su conversación de esa carpeta.`);
+  else { hint('📁 ' + ((res && res.error) || 'carpeta no válida'), true); refreshTeam(); }
+}
+
+el('sendBtn').addEventListener('click', send);
+el('trainBtn').addEventListener('click', trainFromBox);
+el('stopBtn').addEventListener('click', () => interruptIds(targets()));
+el('selAll').addEventListener('click', () => { for (const id of team.keys()) selected.add(id); renderTeam(); });
+el('selNone').addEventListener('click', () => { selected.clear(); renderTeam(); renderConvo(); });
+msgEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
+});
+cwdEl.addEventListener('change', applyCwd);
+cwdEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); cwdEl.blur(); } });
+
+// Clic en un personaje del canvas
+window.addEventListener('pixel:pick', (e) => {
+  const d = e.detail || {};
+  if (!team.has(d.sessionId)) return;
+  focusMember(d.sessionId, d.additive);
+  const m = team.get(d.sessionId);
+  hint(d.additive ? `Marcados: ${namesOf(targets())}` : `🎯 Hablando con ${m.name} (${m.role}): mantén 🎤 o escribe.`);
+});
 
 // ---- Voz: micrófono ----------------------------------------------------------
 
@@ -480,7 +417,19 @@ let voicePrepared = false;
 let voiceStatusTimer = 0;
 
 function setMicUi(state) { micBtn.dataset.state = state; }
-function setLevel(v) { micBtn.style.setProperty('--lvl', (v || 0).toFixed(3)); }
+// Nivel del micro (0..1). En modo clic, al detectar que has hablado y luego
+// hay ~1,4 s de silencio, se envía solo.
+const vad = { heard: false, lastLoud: 0 };
+function setLevel(v) {
+  micBtn.style.setProperty('--lvl', (v || 0).toFixed(3));
+  if (!micMode) return;
+  const t = performance.now();
+  if (v > 0.12) { vad.heard = true; vad.lastLoud = t; }
+  else if (micMode === 'toggle' && vad.heard && t - vad.lastLoud > 1400) {
+    hint('🎤 Te he oído, enviando…');
+    micStop();
+  }
+}
 
 function showVoiceStatus(s) {
   if (!s || !s.state) return;
@@ -525,6 +474,7 @@ async function micStart(mode) {
   if (!voiceIpc || !PV || !VC) { hint('La voz no está disponible en esta versión.', true); return; }
   micMode = mode;
   micPressAt = performance.now();
+  vad.heard = false;
   // Si hablas tú, los agentes callan y no vuelven a hablar hasta que acabes
   // (si no, el micro recogería su voz como si fuera una orden tuya).
   PV.speaker.stopAll();
@@ -563,7 +513,7 @@ async function micStop() {
     if (req !== micReq) return;
     if (!res) { hint(''); return; }
     if (res.seconds < 0.35) { hint('🎤 Muy corto: mantén pulsado mientras hablas.', true); return; }
-    if (res.rms < 0.003) { hint('🎤 No te he oído (¿micro silenciado?).', true); return; }
+    if (res.rms < 0.0015) { hint('🎤 No te he oído (¿micro silenciado?).', true); return; }
 
     hint('✍️ Transcribiendo… (Esc cancela)');
     const r = await voiceIpc.transcribe(res.audio);
@@ -571,7 +521,7 @@ async function micStop() {
     if (r && r.error) { hint('🎤 Error al transcribir: ' + r.error, true); return; }
     const text = String((r && r.text) || '').trim();
     if (VC.isNoise(text)) { hint('🎤 No te he entendido. Prueba otra vez.', true); return; }
-    await runVoiceCommand(text);
+    await runCommand(text, true);
   } catch (e) {
     if (req === micReq) hint('🎤 Error: ' + (e && e.message ? e.message : e), true);
   } finally {
@@ -614,7 +564,7 @@ micBtn.addEventListener('pointerup', () => {
   // Clic corto: sigue grabando hasta el siguiente clic.
   if (performance.now() - micPressAt < 350) {
     micMode = 'toggle';
-    hint('🎤 Escuchando… pulsa 🎤 otra vez para enviar (Esc cancela)');
+    hint('🎤 Escuchando… habla y se enviará al callarte (o pulsa 🎤 otra vez). Esc cancela.');
     return;
   }
   micStop();
@@ -642,13 +592,13 @@ if (voiceIpc && voiceIpc.onStatus) voiceIpc.onStatus(showVoiceStatus);
 
 function speakReply(id, text) {
   if (!PV || !VC || !PV.speaker.isEnabled()) return;
-  const a = agents.get(id);
-  if (!a) return;
-  const s = VC.speechText(text);
+  const m = team.get(id);
+  if (!m) return;
+  const s = VC.speechText(String(text).replace(/<conocimiento>[\s\S]*?(?:<\/conocimiento>|$)/gi, ' '));
   if (!s) return;
-  // Con varios agentes decimos quién habla.
-  const prefix = liveAgents().length > 1 ? `${shortName(a)}: ` : '';
-  PV.speaker.say(id, prefix + s, a.num - 1);
+  // Si no es a quien estás mirando, dice quién habla.
+  const prefix = id !== activeId || selected.size ? `${m.name}: ` : '';
+  PV.speaker.say(id, prefix + s, m.index);
 }
 
 function renderTtsBtn() {
@@ -664,73 +614,63 @@ ttsBtn.addEventListener('click', () => {
   if (!PV) return;
   PV.speaker.setEnabled(!PV.speaker.isEnabled());
   renderTtsBtn();
-  hint(PV.speaker.isEnabled() ? '🔊 Los agentes leerán sus respuestas.' : '🔈 Voz de los agentes desactivada.');
+  hint(PV.speaker.isEnabled() ? '🔊 El equipo leerá sus respuestas.' : '🔈 Voz del equipo desactivada.');
 });
 skipBtn.addEventListener('click', () => { if (PV) PV.speaker.stopAll(); });
 
 if (PV) {
   PV.speaker.onChange((key) => {
     skipBtn.classList.toggle('live', !!key);
-    renderAgentList(); // resalta quién habla y actualiza el canvas
+    renderTeam();
   });
 }
 
-// ---- Eventos del agente (desde el proceso principal) -----------------------
+// ---- Eventos del equipo (desde el proceso principal) -----------------------
 
-if (window.agentApi && window.agentApi.onEvent) {
-  window.agentApi.onEvent((ev) => {
-    if (!ev || !ev.id) return;
-    const a = agents.get(ev.id);
+if (api && api.onEvent) {
+  api.onEvent((ev) => {
+    if (!ev || !ev.id || !team.has(ev.id)) return;
+    const m = team.get(ev.id);
     switch (ev.kind) {
       case 'spawned':
-        if (!agents.has(ev.id)) {
-          counter += 1;
-          agents.set(ev.id, { id: ev.id, num: counter, cwd: ev.cwd, sessionId: null, status: 'busy', messages: [] });
-          renderAgentList();
-        }
-        break;
-      case 'session':
-        if (a && a.sessionId !== ev.sessionId) {
-          a.sessionId = ev.sessionId;
-          if (a.name && ev.sessionId) window.PIXEL_AGENT_NAMES[ev.sessionId] = a.name;
-          renderAgentList(); // avatar con su color y anillo de destino en el canvas
-        }
+        push(ev.id, 'system', ev.resumed ? `↻ ${m.name} retoma la conversación` : `▶ ${m.name} empieza una conversación nueva`);
         break;
       case 'assistant':
         push(ev.id, 'assistant', ev.text);
         setStatus(ev.id, 'busy');
-        speakReply(ev.id, ev.text);
+        if (!ev.training) speakReply(ev.id, ev.text);
         break;
       case 'tool':
         push(ev.id, 'tool', ev.label || ev.name);
         setStatus(ev.id, 'busy');
         break;
-      case 'user':
-        // ya lo añadimos localmente al enviar; lo ignoramos para no duplicar
-        break;
       case 'result': {
         const cost = typeof ev.cost === 'number' ? ` · $${ev.cost.toFixed(4)}` : '';
-        push(ev.id, 'system', `✅ turno completado${cost}`);
+        push(ev.id, 'system', `✅ listo${cost}`);
         setStatus(ev.id, 'live');
         break;
       }
+      case 'trained':
+        push(ev.id, 'system', ev.ok ? `🎓 ${m.name} ha aprendido «${ev.topic}» y lo tendrá en cuenta siempre.` : `⚠️ ${m.name} no terminó la capacitación en «${ev.topic}». Pulsa el tema para reintentar.`);
+        if (ev.ok && PV && PV.speaker.isEnabled()) PV.speaker.say(ev.id, `${m.name}: capacitación en ${ev.topic} completada.`, m.index);
+        refreshTeam();
+        break;
+      case 'team':
+        refreshTeam();
+        break;
       case 'error':
         push(ev.id, 'error', ev.text || 'error');
-        setStatus(ev.id, 'live');
+        setStatus(ev.id, 'error');
         break;
       case 'closed':
-        if (PV) PV.speaker.forget(ev.id);
-        setStatus(ev.id, 'closed');
+        if (m.status === 'busy') setStatus(ev.id, 'live');
         break;
     }
   });
 }
 
-renderAgentList();
-renderConvo();
 renderTtsBtn();
-agentNameEl.value = suggestName();
-console.log('CHAT-INIT ok; api=' + !!(window.agentApi && window.agentApi.spawn) +
-  ' voz=' + !!(voiceIpc && PV && VC) +
-  ' spawnBtn=' + !!document.getElementById('spawnBtn') +
-  ' sendBtn=' + !!document.getElementById('sendBtn'));
+refreshTeam().then(() => {
+  hint('🎯 Habla con JARVIS o di el nombre de otro miembro del equipo.');
+  console.log('CHAT-INIT ok; equipo=' + team.size + ' voz=' + !!(voiceIpc && PV && VC));
+}).catch((e) => hint('No se pudo cargar el equipo: ' + (e && e.message), true));

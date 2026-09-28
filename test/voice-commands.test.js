@@ -5,7 +5,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseCommand, speechText, isNoise, phonKey } = require('../src/renderer/voice-commands.js');
 
-const NAMES = ['Ana', 'Beto', 'Leo', 'Uxía', 'Ximo', 'Gabi', 'Agente 7'];
+// Nombres del equipo y alias (como los escribe Whisper)
+const NAMES = [
+  { name: 'JARVIS', aliases: ['Yarvis', 'Jarbis'] },
+  { name: 'FRIDAY', aliases: ['Fraidei'] },
+  'TARS',
+  { name: 'EDITH', aliases: ['Edit'] },
+  { name: 'KITT', aliases: ['Kit'] },
+];
 const p = (t) => parseCommand(t, NAMES);
 
 test('mensaje sin destinatario va al destino actual', () => {
@@ -13,87 +20,79 @@ test('mensaje sin destinatario va al destino actual', () => {
 });
 
 test('dirigirse por nombre', () => {
-  assert.deepEqual(p('Ana, revisa los tests.'), { type: 'send', to: ['Ana'], text: 'revisa los tests' });
-  assert.deepEqual(p('Ana revisa los tests'), { type: 'send', to: ['Ana'], text: 'revisa los tests' });
-  assert.deepEqual(p('Oye, Beto: haz un commit'), { type: 'send', to: ['Beto'], text: 'haz un commit' });
-  assert.deepEqual(p('Ana y Beto, haced un commit'), { type: 'send', to: ['Ana', 'Beto'], text: 'haced un commit' });
-  assert.deepEqual(p('Ana, Beto: sincronizaos'), { type: 'send', to: ['Ana', 'Beto'], text: 'sincronizaos' });
-  assert.deepEqual(p('Agente 7, mira el log'), { type: 'send', to: ['Agente 7'], text: 'mira el log' });
+  assert.deepEqual(p('Jarvis, revisa la arquitectura.'), { type: 'send', to: ['JARVIS'], text: 'revisa la arquitectura' });
+  assert.deepEqual(p('Jarvis revisa la arquitectura'), { type: 'send', to: ['JARVIS'], text: 'revisa la arquitectura' });
+  assert.deepEqual(p('Oye, Kit: haz el deploy'), { type: 'send', to: ['KITT'], text: 'haz el deploy' });
+  assert.deepEqual(p('Friday y Edith, revisad el login'), { type: 'send', to: ['FRIDAY', 'EDITH'], text: 'revisad el login' });
+  assert.deepEqual(p('Tars, Kitt: sincronizaos'), { type: 'send', to: ['TARS', 'KITT'], text: 'sincronizaos' });
 });
 
 test('nombres con otra ortografía (Whisper)', () => {
-  assert.deepEqual(p('Veto, compila'), { type: 'send', to: ['Beto'], text: 'compila' });
-  assert.deepEqual(p('Uxia, lee el README'), { type: 'send', to: ['Uxía'], text: 'lee el README' });
-  assert.deepEqual(p('Chimo, despliega'), { type: 'send', to: ['Ximo'], text: 'despliega' });
-  assert.deepEqual(p('Gaby, prueba'), { type: 'send', to: ['Gabi'], text: 'prueba' });
-  assert.equal(phonKey('Hugo'), phonKey('Ugo'));
+  assert.deepEqual(p('Yarvis, planifica'), { type: 'send', to: ['JARVIS'], text: 'planifica' });
+  assert.deepEqual(p('Fraidei, cambia los colores'), { type: 'send', to: ['FRIDAY'], text: 'cambia los colores' });
+  assert.deepEqual(p('Tarz, optimiza la consulta'), { type: 'send', to: ['TARS'], text: 'optimiza la consulta' });
+  assert.equal(phonKey('Kitt'), phonKey('Kit'));
 });
 
-test('un nombre que no existe no se trata como destinatario', () => {
+test('un nombre que no es del equipo no se trata como destinatario', () => {
   assert.deepEqual(p('Marta, revisa esto'), { type: 'send', to: null, text: 'Marta, revisa esto' });
-  assert.deepEqual(p('Anabel, revisa esto'), { type: 'send', to: null, text: 'Anabel, revisa esto' });
+  assert.deepEqual(p('Kitten, revisa esto'), { type: 'send', to: null, text: 'Kitten, revisa esto' });
 });
 
-test('"Ana, y luego…" no confunde la coma con otro nombre', () => {
-  assert.deepEqual(p('Ana, y luego sube los cambios'), { type: 'send', to: ['Ana'], text: 'y luego sube los cambios' });
+test('"JARVIS, y luego…" no confunde la coma con otro nombre', () => {
+  assert.deepEqual(p('Jarvis, y luego sube los cambios'), { type: 'send', to: ['JARVIS'], text: 'y luego sube los cambios' });
 });
 
 test('difusión a todos', () => {
   assert.deepEqual(p('Todos, paren.'), { type: 'interrupt', to: 'all' });
   assert.deepEqual(p('todos paren'), { type: 'interrupt', to: 'all' });
   assert.deepEqual(p('Todo el mundo: actualizad la rama'), { type: 'send', to: 'all', text: 'actualizad la rama' });
-  // "todos los tests…" es un mensaje normal, no una difusión
   assert.deepEqual(p('Todos los tests fallan, arréglalos'), { type: 'send', to: null, text: 'Todos los tests fallan, arréglalos' });
 });
 
 test('detener (interrumpir el turno)', () => {
   assert.deepEqual(p('Para.'), { type: 'interrupt', to: null });
   assert.deepEqual(p('Detente ya, por favor'), { type: 'interrupt', to: null });
-  assert.deepEqual(p('Ana, para'), { type: 'interrupt', to: ['Ana'] });
-  assert.deepEqual(p('Para, Ana.'), { type: 'interrupt', to: ['Ana'] });
-  assert.deepEqual(p('Detén a Leo'), { type: 'interrupt', to: ['Leo'] });
+  assert.deepEqual(p('Kitt, para'), { type: 'interrupt', to: ['KITT'] });
+  assert.deepEqual(p('Para, Tars.'), { type: 'interrupt', to: ['TARS'] });
+  assert.deepEqual(p('Detén a Edith'), { type: 'interrupt', to: ['EDITH'] });
   assert.deepEqual(p('Paren todos'), { type: 'interrupt', to: 'all' });
   // "para" como preposición no es una orden de parada
-  assert.deepEqual(p('Ana, para cada archivo añade un test'), { type: 'send', to: ['Ana'], text: 'para cada archivo añade un test' });
+  assert.deepEqual(p('Edith, para cada archivo añade un test'), { type: 'send', to: ['EDITH'], text: 'para cada archivo añade un test' });
   assert.deepEqual(p('Para el servidor de desarrollo'), { type: 'send', to: null, text: 'Para el servidor de desarrollo' });
 });
 
-test('despedir (cerrar la sesión del agente) solo con nombre', () => {
-  assert.deepEqual(p('Despide a Leo'), { type: 'stop', to: ['Leo'] });
-  assert.deepEqual(p('Leo, despídelo'), { type: 'stop', to: ['Leo'] });
-  assert.deepEqual(p('Elimina a Ana y Beto'), { type: 'stop', to: ['Ana', 'Beto'] });
-  // verbos comunes o sin nombre: se envían como mensaje, no cierran nada
-  assert.deepEqual(p('Leo, termina'), { type: 'send', to: ['Leo'], text: 'termina' });
-  assert.deepEqual(p('Termina.'), { type: 'send', to: null, text: 'Termina' });
-  assert.deepEqual(p('Cierra todas'), { type: 'send', to: null, text: 'Cierra todas' });
-  assert.deepEqual(p('Despide a todos'), { type: 'send', to: null, text: 'Despide a todos' });
-  assert.deepEqual(p('Todos, elimina'), { type: 'send', to: 'all', text: 'elimina' });
-  assert.deepEqual(p('Despide'), { type: 'send', to: null, text: 'Despide' });
+test('reiniciar la conversación solo con nombre', () => {
+  assert.deepEqual(p('Reinicia a Tars'), { type: 'reset', to: ['TARS'] });
+  assert.deepEqual(p('Tars, reiníciate'), { type: 'reset', to: ['TARS'] });
+  assert.deepEqual(p('Resetea a Friday y Edith'), { type: 'reset', to: ['FRIDAY', 'EDITH'] });
+  // sin nombre, con "todos" o con complemento: es una tarea normal
+  assert.deepEqual(p('Reinicia el servidor'), { type: 'send', to: null, text: 'Reinicia el servidor' });
+  assert.deepEqual(p('Reinicia.'), { type: 'send', to: null, text: 'Reinicia' });
+  assert.deepEqual(p('Reinicia a todos'), { type: 'send', to: null, text: 'Reinicia a todos' });
+  assert.deepEqual(p('Kitt, termina'), { type: 'send', to: ['KITT'], text: 'termina' });
 });
 
-test('nuevo agente', () => {
-  assert.deepEqual(p('Nuevo agente llamado Leo: revisa los tests.'), { type: 'spawn', name: 'Leo', text: 'revisa los tests' });
-  assert.deepEqual(p('Crea un agente que se llame marta y que revise el README'), { type: 'spawn', name: 'Marta', text: 'revise el README' });
-  assert.deepEqual(p('Lanza un nuevo agente para que documente la API'), { type: 'spawn', name: null, text: 'documente la API' });
-  assert.deepEqual(p('Nuevo agente Hugo: mira los logs'), { type: 'spawn', name: 'Hugo', text: 'mira los logs' });
-  assert.deepEqual(p('Nuevo agente llamado Iris'), { type: 'spawn', name: 'Iris', text: '' });
-  assert.deepEqual(p('Nuevo agente.'), { type: 'spawn', name: null, text: '' });
-  // frases que hablan de "agentes" pero no piden lanzar uno
-  assert.equal(p('Crea un agente de scraping en Python').type, 'send');
-  assert.equal(p('Añade un agente nuevo al docker-compose').type, 'send');
-  assert.equal(p('Ana, crea un agente de soporte en el código').type, 'send');
+test('capacitación', () => {
+  assert.deepEqual(p('Kitt, capacítate en Kubernetes.'), { type: 'train', to: ['KITT'], topic: 'Kubernetes' });
+  assert.deepEqual(p('Friday, especialízate en React y Tailwind'), { type: 'train', to: ['FRIDAY'], topic: 'React y Tailwind' });
+  assert.deepEqual(p('Edith, aprende sobre OWASP Top 10'), { type: 'train', to: ['EDITH'], topic: 'OWASP Top 10' });
+  assert.deepEqual(p('Tars, fórmate en PostgreSQL'), { type: 'train', to: ['TARS'], topic: 'PostgreSQL' });
+  assert.deepEqual(p('Capacítate en la API de Stripe'), { type: 'train', to: null, topic: 'API de Stripe' });
+  // "aprende" sin tema no es capacitación
+  assert.equal(p('Jarvis, aprende').type, 'send');
 });
 
 test('silencio y selección', () => {
   assert.deepEqual(p('¡Silencio!'), { type: 'silence' });
   assert.deepEqual(p('Cállate, por favor'), { type: 'silence' });
-  assert.deepEqual(p('Ana.'), { type: 'select', to: ['Ana'] });
-  assert.deepEqual(p('Oye Ana'), { type: 'select', to: ['Ana'] });
+  assert.deepEqual(p('Edith.'), { type: 'select', to: ['EDITH'] });
+  assert.deepEqual(p('Oye Jarvis'), { type: 'select', to: ['JARVIS'] });
   assert.deepEqual(p('  '), { type: 'empty' });
 });
 
 test('sin lista de nombres también funciona', () => {
-  assert.deepEqual(parseCommand('Ana, revisa', []), { type: 'send', to: null, text: 'Ana, revisa' });
+  assert.deepEqual(parseCommand('Jarvis, revisa', []), { type: 'send', to: null, text: 'Jarvis, revisa' });
   assert.deepEqual(parseCommand('para', undefined), { type: 'interrupt', to: null });
 });
 
@@ -113,9 +112,8 @@ test('speechText quita código y markdown y recorta', () => {
 });
 
 test('isNoise detecta alucinaciones típicas de Whisper', () => {
-  for (const n of ['', '...', '[Música]', '(risas)', 'Subtítulos realizados por la comunidad de Amara.org', '¡Suscríbete!', 'Gracias por ver el video.']) {
+  for (const n of ['', '...', '[Música]', '(risas)', 'Subtítulos realizados por la comunidad de Amara.org', '¡Suscríbete!', 'Gracias por ver el video.', 'Gracias.']) {
     assert.equal(isNoise(n), true, n);
   }
-  assert.equal(isNoise('Gracias.'), true);
-  for (const ok of ['Ana, revisa los tests', 'para', 'Gracias, Ana']) assert.equal(isNoise(ok), false, ok);
+  for (const ok of ['Jarvis, revisa los tests', 'para', 'Gracias, Jarvis']) assert.equal(isNoise(ok), false, ok);
 });
