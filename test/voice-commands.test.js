@@ -58,10 +58,17 @@ test('detener (interrumpir el turno)', () => {
   assert.deepEqual(p('Para el servidor de desarrollo'), { type: 'send', to: null, text: 'Para el servidor de desarrollo' });
 });
 
-test('despedir (cerrar la sesión del agente)', () => {
+test('despedir (cerrar la sesión del agente) solo con nombre', () => {
   assert.deepEqual(p('Despide a Leo'), { type: 'stop', to: ['Leo'] });
-  assert.deepEqual(p('Leo, termina'), { type: 'stop', to: ['Leo'] });
+  assert.deepEqual(p('Leo, despídelo'), { type: 'stop', to: ['Leo'] });
   assert.deepEqual(p('Elimina a Ana y Beto'), { type: 'stop', to: ['Ana', 'Beto'] });
+  // verbos comunes o sin nombre: se envían como mensaje, no cierran nada
+  assert.deepEqual(p('Leo, termina'), { type: 'send', to: ['Leo'], text: 'termina' });
+  assert.deepEqual(p('Termina.'), { type: 'send', to: null, text: 'Termina' });
+  assert.deepEqual(p('Cierra todas'), { type: 'send', to: null, text: 'Cierra todas' });
+  assert.deepEqual(p('Despide a todos'), { type: 'send', to: null, text: 'Despide a todos' });
+  assert.deepEqual(p('Todos, elimina'), { type: 'send', to: 'all', text: 'elimina' });
+  assert.deepEqual(p('Despide'), { type: 'send', to: null, text: 'Despide' });
 });
 
 test('nuevo agente', () => {
@@ -70,6 +77,11 @@ test('nuevo agente', () => {
   assert.deepEqual(p('Lanza un nuevo agente para que documente la API'), { type: 'spawn', name: null, text: 'documente la API' });
   assert.deepEqual(p('Nuevo agente Hugo: mira los logs'), { type: 'spawn', name: 'Hugo', text: 'mira los logs' });
   assert.deepEqual(p('Nuevo agente llamado Iris'), { type: 'spawn', name: 'Iris', text: '' });
+  assert.deepEqual(p('Nuevo agente.'), { type: 'spawn', name: null, text: '' });
+  // frases que hablan de "agentes" pero no piden lanzar uno
+  assert.equal(p('Crea un agente de scraping en Python').type, 'send');
+  assert.equal(p('Añade un agente nuevo al docker-compose').type, 'send');
+  assert.equal(p('Ana, crea un agente de soporte en el código').type, 'send');
 });
 
 test('silencio y selección', () => {
@@ -104,5 +116,6 @@ test('isNoise detecta alucinaciones típicas de Whisper', () => {
   for (const n of ['', '...', '[Música]', '(risas)', 'Subtítulos realizados por la comunidad de Amara.org', '¡Suscríbete!', 'Gracias por ver el video.']) {
     assert.equal(isNoise(n), true, n);
   }
-  for (const ok of ['Ana, revisa los tests', 'para', 'Gracias']) assert.equal(isNoise(ok), false, ok);
+  assert.equal(isNoise('Gracias.'), true);
+  for (const ok of ['Ana, revisa los tests', 'para', 'Gracias, Ana']) assert.equal(isNoise(ok), false, ok);
 });

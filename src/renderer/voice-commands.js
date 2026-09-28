@@ -51,11 +51,18 @@
   const FILLERS = /^(?:oye|oiga|oigan|hey|eh|ey|hola|vale|bueno|venga|a ver|ok|okay|escucha|escuchad)\b[\s,.:;!¡]*/;
   const POLITE = /(?:[\s,]+(?:por favor|porfa|ya|ahora|ahora mismo|un momento|un segundo|de momento|gracias|inmediatamente|enseguida))+$/;
   const INTERRUPT = '(?:para|paren|parad|parate|pare|detente|deteneos|detenganse|deten|alto|basta|stop|espera|esperad|esperen|quieto|quietos|quieta|frena|frenad|pausa|cancela|cancelad)';
-  const KILL = '(?:despide|despedid|despidelo|despidela|elimina|eliminad|eliminalo|eliminala|cierra|cerrad|cierralo|cierrala|apaga|apagad|termina|terminad|finaliza|echa)';
+  // Cerrar una sesión es destructivo: solo con verbos inequívocos y SIEMPRE con
+  // nombre ("despide a Leo"). "Termina", "cierra" o "apaga" suelen ser tareas
+  // ("termina el informe") y se envían como mensaje.
+  const KILL = '(?:despide|despedid|despidelo|despidela|elimina|eliminad|eliminalo|eliminala)';
   const SILENCE = /^(?:silencio|callate|callaos|callense|calla|shh+|chis+|deja de hablar|dejad de hablar|no hables|no habl[eé]is|mute|silencia)$/;
   const ALL_WORDS = '(?:a\\s+)?(?:todos los agentes|todo el mundo|todos|todas|equipo|chicos|chicas|gente|agentes)';
   const SPAWN = /^(?:(?:crea|crear|creame|lanza|lanzar|lanzame|pon|ponme|anade|anademe|contrata|quiero|necesito|dame|abre)\s+)?(?:(?:un|una|otro|otra)\s+)?(?:(?:nuevo|nueva)\s+agente|agente\s+(?:nuevo|nueva))\b|^(?:crea|crear|creame|lanza|lanzar|lanzame|anade|contrata|abre)\s+(?:(?:un|una|otro)\s+)?agente\b/;
   const NAMED = /^[\s,]*(?:que\s+se\s+llame|que\s+se\s+llama|llamado|llamada|de\s+nombre|con\s+(?:el\s+)?nombre(?:\s+de)?|se\s+llama|nombre)\s+/;
+  // Tras "nuevo agente" tiene que venir el nombre, la tarea o nada: "crea un
+  // agente de scraping" o "añade un agente nuevo al docker-compose" son
+  // mensajes normales, no órdenes de lanzar un agente.
+  const SPAWN_TAIL = /^\s*(?:$|[:,.;!]|(?:que|para|y|llamad[oa]|de\s+nombre|con\s+(?:el\s+)?nombre|se\s+llama|nombre)\b)/;
 
   function trimPunct(s) {
     return String(s || '').replace(/^[\s,.:;!?¡¿…\-–—"'«»]+|[\s,.:;!?¡¿…\-–—"'«»]+$/g, '');
@@ -139,7 +146,9 @@
 
     // Nuevo agente
     const sp = f.match(SPAWN);
-    if (sp) {
+    const spawnOk = sp && (SPAWN_TAIL.test(f.slice(sp[0].length)) ||
+      /^\s+[A-ZÁÉÍÓÚÑÜ][^\s,.:;!?¡¿]*\s*[,.:;]/.test(t.slice(sp[0].length)));
+    if (spawnOk) {
       let i = sp[0].length;
       let name = null;
       const nm = f.slice(i).match(NAMED);
@@ -173,7 +182,8 @@
 
     if (to && !rest) return { type: 'select', to };
     if (isOnly(INTERRUPT, frest)) return { type: 'interrupt', to };
-    if (isOnly(KILL, frest)) return { type: 'stop', to };
+    // "Leo, despídelo": solo con nombres concretos (nunca "todos" ni sin nombre)
+    if (Array.isArray(to) && isOnly(KILL, frest)) return { type: 'stop', to };
 
     // "para, Ana" / "detén a Ana" / "despide a Leo" / "paren todos"
     if (!to) {
@@ -183,7 +193,8 @@
         const a = readAddress(ftail, names);
         if (a && !trimPunct(ftail.slice(a.end)).replace(POLITE, '').trim()) {
           const kill = new RegExp('^' + KILL + '$').test(m[1]);
-          return { type: kill ? 'stop' : 'interrupt', to: a.to };
+          if (!kill) return { type: 'interrupt', to: a.to };
+          if (Array.isArray(a.to)) return { type: 'stop', to: a.to };
         }
       }
     }
@@ -228,6 +239,8 @@
     if (/^[\[(].*[\])]$/.test(f)) return true; // [musica], (risas), [BLANK_AUDIO]
     if (!/[a-z0-9]/.test(f)) return true;
     if (/amara\.org|subtitulos (?:realizados|por)|subtitulado por|suscribete|gracias por ver(?: el video)?$|^musica$/.test(f)) return true;
+    // "Gracias." suelto es la alucinación más típica con silencio
+    if (/^(?:muchas )?gracias$/.test(f)) return true;
     return false;
   }
 

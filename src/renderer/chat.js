@@ -59,11 +59,13 @@ function suggestName() {
   for (const n of NAME_POOL) if (!used.has(n.toLowerCase())) return n;
   return 'Agente ' + (agents.size + 1);
 }
-// Evita dos agentes con el mismo nombre (si no, no se les podría llamar por voz).
+// Evita dos agentes con nombres iguales o que SUENAN igual (Ana/Anna,
+// Gabi/Gaby): por voz no se podrían distinguir.
+function nameKey(n) { return VC ? VC.phonKey(n) : String(n).toLowerCase(); }
 function uniqueName(name) {
-  const used = usedNames();
-  if (!used.has(name.toLowerCase())) return name;
-  for (let i = 2; ; i++) if (!used.has(`${name} ${i}`.toLowerCase())) return `${name} ${i}`;
+  const used = new Set([...agents.values()].filter((a) => a.name).map((a) => nameKey(a.name)));
+  if (!used.has(nameKey(name))) return name;
+  for (let i = 2; ; i++) if (!used.has(nameKey(`${name} ${i}`))) return `${name} ${i}`;
 }
 
 function hint(text, isErr) {
@@ -356,7 +358,8 @@ window.addEventListener('pixel:pick', (e) => {
 
 // ---- Voz: órdenes habladas -------------------------------------------------
 
-let pendingSpawn = null; // { name } cuando dijiste "nuevo agente llamado X" sin tarea
+let pendingSpawn = null; // { name, until } tras "nuevo agente llamado X" sin tarea
+const PENDING_SPAWN_MS = 30000;
 
 function liveAgents() { return [...agents.values()].filter(isLive); }
 
@@ -383,6 +386,7 @@ async function runVoiceCommand(text) {
   console.log('voz: ' + JSON.stringify(cmd));
 
   // "nuevo agente llamado Leo" + (siguiente frase) "revisa los tests"
+  if (pendingSpawn && Date.now() > pendingSpawn.until) pendingSpawn = null;
   if (pendingSpawn && cmd.type === 'send' && !cmd.to && cmd.text) {
     const name = pendingSpawn.name;
     pendingSpawn = null;
@@ -403,7 +407,7 @@ async function runVoiceCommand(text) {
 
     case 'spawn':
       if (!cmd.text) {
-        pendingSpawn = { name: cmd.name };
+        pendingSpawn = { name: cmd.name, until: Date.now() + PENDING_SPAWN_MS };
         if (cmd.name) agentNameEl.value = cmd.name;
         hint(`${heard} → ¿Qué tiene que hacer ${cmd.name || 'el nuevo agente'}? Dímelo ahora.`);
         return;
@@ -424,6 +428,11 @@ async function runVoiceCommand(text) {
       const r = cmd.to ? resolveTo(cmd.to) : { ids: targets(), missing: [] };
       if (!r.ids.length) { hint(`${heard} → no hay a quién detener.`, true); return; }
       if (cmd.type === 'stop') {
+        // Cerrar sesiones no se deshace: pedimos confirmación.
+        if (!window.confirm(`¿Cerrar la sesión de ${namesOf(r.ids)}?\n\n(Has dicho: «${text}»)`)) {
+          hint(`${heard} → cancelado, no se ha cerrado nada.`);
+          return;
+        }
         await stopIds(r.ids);
         for (const id of r.ids) push(id, 'system', '■ sesión cerrada por voz');
         hint(`${heard} → ■ cerrado: ${namesOf(r.ids)}`);
@@ -446,7 +455,12 @@ async function runVoiceCommand(text) {
       } else {
         ids = targets();
       }
-      if (!ids.length) { await spawn({ prompt: cmd.text, voice: true }); return; }
+      if (!ids.length) {
+        // Sin destino no lanzamos agentes "a ciegas": lo dejamos en la caja.
+        msgEl.value = cmd.text;
+        hint(`${heard} → no hay destino. Pulsa ＋ Agente para lanzarlo con esa tarea, di «nuevo agente…» o elige un personaje.`, true);
+        return;
+      }
       const sent = await sendTo(ids, cmd.text, { voice: true });
       if (!sent) hint(`${heard} → no se pudo enviar.`, true);
       else hint(`${heard} → ${sent > 1 ? `enviado a ${sent} agentes` : `enviado a ${namesOf(ids)}`}`);
@@ -458,7 +472,10 @@ async function runVoiceCommand(text) {
 
 let micMode = null;   // null | 'hold' | 'toggle' | 'key'
 let micPressAt = 0;
-let micBusy = false;  // transcribiendo
+let micBusy = false;  // parando la grabación o transcribiendo
+let micReq = 0;       // id de la transcripción en curso (Esc la invalida)
+let micTimer = 0;     // auto-parada de seguridad
+const MIC_MAX_MS = 120000;
 let voicePrepared = false;
 let voiceStatusTimer = 0;
 
@@ -508,50 +525,80 @@ async function micStart(mode) {
   if (!voiceIpc || !PV || !VC) { hint('La voz no está disponible en esta versión.', true); return; }
   micMode = mode;
   micPressAt = performance.now();
-  PV.speaker.stopAll(); // si hablas tú, callan los agentes
+  // Si hablas tú, los agentes callan y no vuelven a hablar hasta que acabes
+  // (si no, el micro recogería su voz como si fuera una orden tuya).
+  PV.speaker.stopAll();
+  PV.speaker.hold(true);
   prepareVoice();
   setMicUi('listening');
   hint(mode === 'key' ? '🎤 Escuchando… suelta Ctrl+Espacio para enviar (Esc cancela)' : '🎤 Escuchando… suelta para enviar (Esc cancela)');
+  clearTimeout(micTimer);
+  micTimer = setTimeout(() => { if (micMode) { hint('🎤 Máximo 2 minutos por mensaje.'); micStop(); } }, MIC_MAX_MS);
   try {
-    await PV.recorder.start(setLevel);
+    const ok = await PV.recorder.start(setLevel);
+    // No se abrió y nadie lo paró por el camino: volvemos a reposo.
+    if (!ok && micMode === mode) micReset();
   } catch (e) {
-    micMode = null;
-    setMicUi('idle');
+    if (micMode === mode) micReset();
     hint(micErrorText(e), true);
   }
+}
+
+function micReset() {
+  micMode = null;
+  clearTimeout(micTimer);
+  setMicUi('idle');
+  if (PV) PV.speaker.hold(false);
 }
 
 async function micStop() {
   if (!micMode) return;
   micMode = null;
-  const res = await PV.recorder.stop();
-  if (!res) { setMicUi('idle'); return; }
-  if (res.seconds < 0.35) { setMicUi('idle'); hint('🎤 Muy corto: mantén pulsado mientras hablas.', true); return; }
-  if (res.rms < 0.002) { setMicUi('idle'); hint('🎤 No te he oído (¿micro silenciado?).', true); return; }
-
-  micBusy = true;
+  clearTimeout(micTimer);
+  micBusy = true; // hasta terminar no se puede volver a grabar
+  const req = ++micReq;
   setMicUi('busy');
-  hint('✍️ Transcribiendo…');
   try {
+    const res = await PV.recorder.stop();
+    if (req !== micReq) return;
+    if (!res) { hint(''); return; }
+    if (res.seconds < 0.35) { hint('🎤 Muy corto: mantén pulsado mientras hablas.', true); return; }
+    if (res.rms < 0.003) { hint('🎤 No te he oído (¿micro silenciado?).', true); return; }
+
+    hint('✍️ Transcribiendo… (Esc cancela)');
     const r = await voiceIpc.transcribe(res.audio);
+    if (req !== micReq) return; // cancelado con Esc mientras esperábamos
     if (r && r.error) { hint('🎤 Error al transcribir: ' + r.error, true); return; }
     const text = String((r && r.text) || '').trim();
     if (VC.isNoise(text)) { hint('🎤 No te he entendido. Prueba otra vez.', true); return; }
     await runVoiceCommand(text);
   } catch (e) {
-    hint('🎤 Error: ' + (e && e.message ? e.message : e), true);
+    if (req === micReq) hint('🎤 Error: ' + (e && e.message ? e.message : e), true);
   } finally {
-    micBusy = false;
-    setMicUi('idle');
+    if (req === micReq) {
+      micBusy = false;
+      setMicUi('idle');
+      PV.speaker.hold(false);
+    }
   }
 }
 
+// Esc: descarta lo que estás grabando o deja de esperar la transcripción.
 function micCancel() {
-  if (!micMode) return;
-  micMode = null;
-  PV.recorder.cancel();
+  if (micMode) {
+    micMode = null;
+    clearTimeout(micTimer);
+    PV.recorder.cancel();
+  } else if (micBusy) {
+    micReq++; // la transcripción pendiente se ignorará al llegar
+    micBusy = false;
+  } else {
+    return false;
+  }
   setMicUi('idle');
+  PV.speaker.hold(false);
   hint('🎤 Cancelado.');
+  return true;
 }
 
 micBtn.addEventListener('pointerenter', prepareVoice);
@@ -580,14 +627,14 @@ document.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     if (micMode === 'toggle') micStop(); else micStart('key');
   } else if (e.key === 'Escape') {
-    if (micMode) micCancel();
-    else if (PV) PV.speaker.stopAll();
+    if (!micCancel() && PV) PV.speaker.stopAll();
   }
 });
 document.addEventListener('keyup', (e) => {
   if (micMode === 'key' && (e.code === 'Space' || e.key === 'Control')) micStop();
 });
-window.addEventListener('blur', () => { if (micMode === 'key' || micMode === 'hold') micStop(); });
+// Al cambiar de ventana no dejamos el micro abierto.
+window.addEventListener('blur', () => { if (micMode) micStop(); });
 
 if (voiceIpc && voiceIpc.onStatus) voiceIpc.onStatus(showVoiceStatus);
 

@@ -45,6 +45,7 @@ function resize() {
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.clientWidth || window.innerWidth;
   const H = canvas.clientHeight || window.innerHeight;
+  if (!(W > 0 && H > 0)) return; // ventana minimizada: nada que recalcular
   canvas.width = Math.max(1, Math.floor(W * dpr));
   canvas.height = Math.max(1, Math.floor(H * dpr));
   const s = Math.min(W / VW, H / VH);
@@ -1477,8 +1478,11 @@ function update(t, dt) {
 }
 
 function frame(t) {
+  // Pedimos el siguiente cuadro primero: un error puntual no congela la oficina.
+  requestAnimationFrame(frame);
   const dt = Math.min(50, lastT ? t - lastT : 16);
   lastT = t;
+  if (!(view.scale > 0)) return;
   if (canvas.clientWidth !== lastW || canvas.clientHeight !== lastH) resize();
   if (!bgCanvas) buildStatic();
   update(t, dt);
@@ -1529,8 +1533,6 @@ function frame(t) {
 
   drawHeader();
   if (ds.length === 0) drawEmpty();
-
-  requestAnimationFrame(frame);
 }
 
 requestAnimationFrame(frame);

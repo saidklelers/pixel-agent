@@ -425,12 +425,26 @@ function loadModel(s) {
 function transcribe(audio) {
   if (!audio || !audio.length) return Promise.resolve({ text: '' });
   const samples = audio instanceof Float32Array ? audio : new Float32Array(audio);
-  // Límite de seguridad: 2 minutos de audio.
-  const clipped = samples.length > 16000 * 120 ? samples.subarray(0, 16000 * 120) : samples;
+  // Límite de seguridad: 2 minutos de audio (slice copia solo ese trozo).
+  const MAX = 16000 * 120;
+  const clipped = samples.length > MAX ? samples.slice(0, MAX) : samples;
   const s = getStt();
   const reqId = ++s.seq;
+  const ready = !!(s.last && s.last.state === 'ready');
   return new Promise((resolve) => {
-    s.pending.set(reqId, resolve);
+    // Nunca dejamos el micro bloqueado: si el motor se cuelga, lo reiniciamos;
+    // si aún descarga el modelo, avisamos para reintentar luego.
+    const timer = setTimeout(() => {
+      if (!s.pending.has(reqId)) return;
+      s.pending.delete(reqId);
+      if (ready) {
+        try { s.proc.kill(); } catch (_) { /* noop */ }
+        resolve({ error: 'la transcripción tardó demasiado; se ha reiniciado el motor de voz' });
+      } else {
+        resolve({ error: 'el modelo de voz aún se está descargando; inténtalo cuando termine' });
+      }
+    }, ready ? 60000 : 180000);
+    s.pending.set(reqId, (r) => { clearTimeout(timer); resolve(r); });
     s.proc.postMessage({ type: 'transcribe', reqId, audio: clipped });
   });
 }
@@ -447,20 +461,23 @@ ipcMain.handle('voice:prepare', () => {
 });
 ipcMain.handle('voice:transcribe', (_e, audio) => transcribe(audio));
 
-// Solo dejamos usar el micrófono (audio). Cámara y demás permisos, denegados.
+// Solo la propia app (file://) puede usar el micrófono, y solo audio.
+// Cámara y demás permisos, denegados.
+function isAppUrl(u) { return String(u || '').startsWith('file://'); }
+
 function setupPermissions() {
   const ses = session.defaultSession;
   ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    if (permission === 'media') {
+    if (permission === 'media' && isAppUrl(details && details.requestingUrl)) {
       const types = (details && details.mediaTypes) || [];
       callback(types.length > 0 && types.every((t) => t === 'audio'));
       return;
     }
     callback(false);
   });
-  ses.setPermissionCheckHandler((_wc, permission, _origin, details) => {
-    if (permission === 'media') return !details || details.mediaType !== 'video';
-    return true;
+  ses.setPermissionCheckHandler((_wc, permission, origin, details) => {
+    if (permission === 'media') return isAppUrl(origin) && !(details && details.mediaType === 'video');
+    return false;
   });
 }
 
@@ -482,6 +499,11 @@ function createWindow() {
     },
   });
   win.removeMenu();
+
+  // La ventana solo muestra la app: nada de navegar a otras páginas (p. ej.
+  // al soltar un archivo o un enlace), que heredarían agentApi/voiceApi.
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   // Reenviar consola/errores del render al stdout principal (diagnóstico).
   win.webContents.on('console-message', (_e, level, message, line, sourceId) => {

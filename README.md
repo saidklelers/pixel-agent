@@ -50,14 +50,19 @@ a tu primer agente entrando por la puerta y caminando hasta su mesa.
 | «Nuevo agente llamado Leo: documenta la API» | Lanza un agente nuevo con esa tarea |
 | «Nuevo agente llamado Leo» (y luego la tarea) | Te pregunta qué tiene que hacer |
 | «Para» / «Ana, para» / «Todos, paren» | Interrumpe el turno actual |
-| «Despide a Leo» | Cierra la sesión de Leo |
+| «Despide a Leo» | Cierra la sesión de Leo (pide confirmación; siempre con nombre) |
 | «Ana» | Ana pasa a ser el destino |
 | «Silencio» | Calla las voces de los agentes |
-| Cualquier otra frase | Va al destino actual (o crea un agente si no hay ninguno) |
+| Cualquier otra frase | Va al destino actual (si no hay destino, queda escrita en la caja) |
 
 Los nombres se reconocen aunque Whisper los escriba distinto (Beto/Veto,
-Uxía/Uxia, Ximo/Chimo…). «Para» solo cuenta como orden si es toda la frase: «Ana,
-para cada archivo añade un test» se envía tal cual.
+Uxía/Uxia, Ximo/Chimo…); por eso no se permiten dos agentes con nombres que
+suenen igual. «Para» solo cuenta como orden si es toda la frase: «Ana, para cada
+archivo añade un test» se envía tal cual. «Termina» o «cierra» se envían como
+tarea; solo «despide/elimina a <nombre>» cierra una sesión.
+
+Mientras grabas, los agentes no hablan (para que el micro no capte su voz). El
+micro se corta solo a los 2 minutos o al cambiar de ventana.
 
 ### Respuestas habladas 🔊
 - Los agentes leen sus respuestas con las voces en español de Windows (una voz
@@ -69,6 +74,8 @@ para cada archivo añade un test» se envía tal cual.
 ### Si el micrófono no funciona
 - *Configuración › Privacidad y seguridad › Micrófono*: activa «Permitir que las
   aplicaciones de escritorio accedan al micrófono».
+- Si la voz falla al cargar en un Windows recién instalado, instala el
+  *Microsoft Visual C++ Redistributable* (x64), que usa el motor ONNX.
 - Para usar otro modelo (p. ej. más preciso), define `PIXEL_OFFICE_WHISPER`
   antes de arrancar, por ejemplo `onnx-community/whisper-small`.
 

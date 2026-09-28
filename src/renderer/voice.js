@@ -144,6 +144,7 @@
   const PITCHES = [1, 1.18, 0.86, 1.32, 0.74];
   const sp = {
     enabled: true,
+    held: false, // mientras grabas, nada suena (el micro lo captaría como orden)
     voices: [],
     queue: [], // { key, text, index }
     current: null, // { item, u, timer }
@@ -171,6 +172,7 @@
   }
 
   function next() {
+    if (sp.held) { sp.current = null; notify(); return; }
     const item = sp.queue.shift();
     if (!item) { sp.current = null; notify(); return; }
     const u = new SpeechSynthesisUtterance(item.text);
@@ -206,7 +208,13 @@
       if (!synth || !sp.enabled || !text) return;
       sp.queue = sp.queue.filter((q) => q.key !== key);
       sp.queue.push({ key, text: String(text), index: Math.max(0, index | 0) });
-      if (!sp.current) next();
+      if (!sp.current && !sp.held) next();
+    },
+    // Retiene la cola (on) o la reanuda (off). Lo que llegue mientras tanto
+    // se lee después.
+    hold(on) {
+      sp.held = !!on;
+      if (!sp.held && synth && !sp.current) next();
     },
     // Corta lo que suena y vacía la cola.
     stopAll() {
