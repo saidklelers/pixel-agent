@@ -14,3 +14,11 @@ contextBridge.exposeInMainWorld('agentApi', {
   stop: (id) => ipcRenderer.invoke('agent:stop', { id }),
   onEvent: (cb) => ipcRenderer.on('agent:event', (_e, data) => cb(data)),
 });
+
+// Voz: transcripción local (Whisper) en el proceso principal
+contextBridge.exposeInMainWorld('voiceApi', {
+  prepare: () => ipcRenderer.invoke('voice:prepare'),
+  // audio: Float32Array a 16 kHz mono
+  transcribe: (audio) => ipcRenderer.invoke('voice:transcribe', audio),
+  onStatus: (cb) => ipcRenderer.on('voice:status', (_e, data) => cb(data)),
+});

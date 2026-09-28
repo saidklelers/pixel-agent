@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session, utilityProcess } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -371,6 +371,99 @@ ipcMain.handle('agent:send', (_e, { id, text }) => sendToAgent(id, text));
 ipcMain.handle('agent:interrupt', (_e, { id }) => interruptAgent(id));
 ipcMain.handle('agent:stop', (_e, { id }) => stopAgent(id));
 
+// ---- Voz: transcripción local con Whisper -----------------------------------
+// El audio del micrófono llega del render (Float32Array, 16 kHz mono) y se
+// transcribe en un utilityProcess (stt-worker.js) para no bloquear la app.
+// El modelo se descarga una vez a la carpeta de datos de la app.
+
+const WHISPER_MODEL = process.env.PIXEL_OFFICE_WHISPER || 'onnx-community/whisper-base';
+let stt = null; // { proc, pending: Map<reqId, resolve>, seq, last }
+
+function sendVoiceStatus(payload) {
+  if (stt) stt.last = payload;
+  if (win && !win.isDestroyed() && win.webContents) win.webContents.send('voice:status', payload);
+}
+
+function getStt() {
+  if (stt) return stt;
+  const proc = utilityProcess.fork(path.join(__dirname, 'stt-worker.js'), [], {
+    serviceName: 'Pixel Office - voz',
+    stdio: 'inherit',
+  });
+  const me = { proc, pending: new Map(), seq: 0, last: null };
+  stt = me;
+
+  proc.on('message', (m) => {
+    if (!m || !m.type) return;
+    if (m.type === 'status') {
+      sendVoiceStatus({ state: m.state, progress: m.progress, text: m.text });
+    } else if (m.type === 'result' || m.type === 'error') {
+      const done = me.pending.get(m.reqId);
+      me.pending.delete(m.reqId);
+      if (done) done(m.type === 'result' ? { text: m.text || '' } : { error: m.error || 'error' });
+    }
+  });
+  proc.on('exit', (code) => {
+    for (const done of me.pending.values()) done({ error: 'el motor de voz se cerró (código ' + code + ')' });
+    me.pending.clear();
+    if (stt === me) stt = null;
+    if (!app.isQuitting) sendVoiceStatus({ state: 'error', text: 'El motor de voz se cerró; se reiniciará al volver a hablar.' });
+  });
+
+  loadModel(me);
+  return me;
+}
+
+function loadModel(s) {
+  s.proc.postMessage({
+    type: 'load',
+    model: WHISPER_MODEL,
+    cacheDir: path.join(app.getPath('userData'), 'modelos-voz'),
+  });
+}
+
+function transcribe(audio) {
+  if (!audio || !audio.length) return Promise.resolve({ text: '' });
+  const samples = audio instanceof Float32Array ? audio : new Float32Array(audio);
+  // Límite de seguridad: 2 minutos de audio.
+  const clipped = samples.length > 16000 * 120 ? samples.subarray(0, 16000 * 120) : samples;
+  const s = getStt();
+  const reqId = ++s.seq;
+  return new Promise((resolve) => {
+    s.pending.set(reqId, resolve);
+    s.proc.postMessage({ type: 'transcribe', reqId, audio: clipped });
+  });
+}
+
+ipcMain.handle('voice:prepare', () => {
+  const fresh = !stt;
+  const s = getStt();
+  // Si la carga anterior falló (p. ej. sin conexión), lo reintentamos.
+  if (!fresh && s.last && s.last.state === 'error') {
+    s.last = null;
+    loadModel(s);
+  }
+  return s.last || { state: 'loading', progress: 0, text: 'Preparando el modelo de voz…' };
+});
+ipcMain.handle('voice:transcribe', (_e, audio) => transcribe(audio));
+
+// Solo dejamos usar el micrófono (audio). Cámara y demás permisos, denegados.
+function setupPermissions() {
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    if (permission === 'media') {
+      const types = (details && details.mediaTypes) || [];
+      callback(types.length > 0 && types.every((t) => t === 'audio'));
+      return;
+    }
+    callback(false);
+  });
+  ses.setPermissionCheckHandler((_wc, permission, _origin, details) => {
+    if (permission === 'media') return !details || details.mediaType !== 'video';
+    return true;
+  });
+}
+
 // ---- Ventana ---------------------------------------------------------------
 
 function createWindow() {
@@ -407,7 +500,15 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  setupPermissions();
+  createWindow();
+});
+
+app.on('before-quit', () => {
+  app.isQuitting = true;
+  if (stt) { try { stt.proc.kill(); } catch (_) { /* noop */ } }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

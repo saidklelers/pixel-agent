@@ -7,10 +7,12 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
     "dist": "electron-builder"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.179"
+    "@anthropic-ai/claude-agent-sdk": "^0.3.179",
+    "@huggingface/transformers": "^4.3.0"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -22,6 +24,11 @@
     "files": [
       "src/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**",
+      "node_modules/sharp/**",
+      "node_modules/@img/**"
     ],
     "win": {
       "target": "nsis"

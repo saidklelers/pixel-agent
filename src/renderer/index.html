@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:;" />
     <title>Pixel Office</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -13,8 +13,18 @@
       </div>
       <aside id="chat">
         <div class="chat-head">
-          <span class="chat-title">🛰️ Centro de mando</span>
-          <button id="newAgent" title="Nuevo agente">＋</button>
+          <div class="brand">
+            <span class="logo">🛰️</span>
+            <div>
+              <div class="chat-title">Centro de mando</div>
+              <div class="chat-sub">Escribe o habla con tus agentes</div>
+            </div>
+          </div>
+          <div class="head-actions">
+            <button id="ttsBtn" class="icon-btn" title="Leer las respuestas en voz alta">🔊</button>
+            <button id="skipBtn" class="icon-btn" title="Callar a los agentes (Esc)">⏹</button>
+            <button id="newAgent" class="icon-btn add" title="Nuevo agente">＋</button>
+          </div>
         </div>
         <div id="agentList" class="agent-list"></div>
         <div id="convo" class="convo">
@@ -22,6 +32,10 @@
             Lanza un agente: escribe una tarea abajo, elige la carpeta y pulsa <b>＋ Agente</b>.
             El agente aparecerá caminando a un escritorio.
           </div>
+        </div>
+        <div id="voiceStatus" class="voice-status" hidden>
+          <div class="vs-text"></div>
+          <div class="vs-bar"><div class="vs-fill"></div></div>
         </div>
         <div class="composer">
           <div class="targets">
@@ -31,19 +45,47 @@
               <button id="selNone" class="mini">Ninguno</button>
             </span>
           </div>
-          <input id="agentName" class="cwd" spellcheck="false" placeholder="Nombre del agente" />
-          <input id="cwd" class="cwd" spellcheck="false" value="C:\Proyectos" />
-          <textarea id="msg" rows="3" placeholder="Escribe una orden para el agente…"></textarea>
+          <div class="fields">
+            <label class="field" title="Nombre del próximo agente">
+              <span class="field-icon">🏷️</span>
+              <input id="agentName" spellcheck="false" placeholder="Nombre del agente" />
+            </label>
+            <label class="field grow" title="Carpeta de trabajo del próximo agente">
+              <span class="field-icon">📁</span>
+              <input id="cwd" spellcheck="false" value="C:\Proyectos" />
+            </label>
+          </div>
+          <textarea id="msg" rows="3" placeholder="Escribe una orden… o mantén 🎤 / Ctrl+Espacio y habla"></textarea>
           <div class="composer-row">
+            <button id="micBtn" class="mic" data-state="idle" title="Mantén pulsado para hablar (o Ctrl+Espacio). Un clic corto: graba hasta el siguiente clic.">
+              <span class="mic-ring"></span>
+              <span class="mic-icon">🎤</span>
+            </button>
             <button id="spawnBtn" class="primary">＋ Agente</button>
             <button id="sendBtn">Enviar</button>
             <button id="stopBtn" class="danger" title="Detener agente">■</button>
           </div>
           <div id="hint" class="hint"></div>
+          <details class="voice-help">
+            <summary>🎙️ ¿Qué puedo decir?</summary>
+            <ul>
+              <li><b>«Ana, revisa los tests»</b> — habla solo con Ana</li>
+              <li><b>«Ana y Beto: haced un commit»</b> — a varios</li>
+              <li><b>«Todos, actualizad la rama»</b> — difusión</li>
+              <li><b>«Nuevo agente llamado Leo: documenta la API»</b></li>
+              <li><b>«Para» / «Ana, para» / «Todos, paren»</b> — interrumpir</li>
+              <li><b>«Despide a Leo»</b> — cerrar su sesión</li>
+              <li><b>«Ana»</b> — elegirla como destino</li>
+              <li><b>«Silencio»</b> — callar las voces</li>
+              <li>Sin nombre, va al destino actual. Clic en un personaje del mapa para elegirlo (Ctrl+clic para marcar varios).</li>
+            </ul>
+          </details>
         </div>
       </aside>
     </div>
     <script src="renderer.js"></script>
+    <script src="voice-commands.js"></script>
+    <script src="voice.js"></script>
     <script src="chat.js"></script>
   </body>
 </html>
