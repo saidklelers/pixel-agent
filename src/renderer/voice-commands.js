@@ -95,9 +95,15 @@
     let hit = null;
     for (const cand of list) {
       const k = cand.words.length;
-      if (words.length < k) continue;
-      const said = phonKey(words.slice(0, k).map((w) => w.text).join(' '));
-      if (said && said === phonKey(cand.words.join(' '))) { hit = { name: cand.name, end: words[k - 1].end }; break; }
+      const target = phonKey(cand.words.join(' '));
+      // Whisper a veces parte el nombre en dos palabras ("Y Arvis" por
+      // "Jarvis"): probamos también juntando una palabra más.
+      for (const span of [k, k + 1]) {
+        if (words.length < span) continue;
+        const said = phonKey(words.slice(0, span).map((w) => w.text).join(' '));
+        if (said && said === target) { hit = { name: cand.name, end: words[span - 1].end }; break; }
+      }
+      if (hit) break;
     }
     if (!hit) return null;
 

@@ -140,6 +140,11 @@ button {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(126, 224, 138, 0.2);
 }
+/* Manos libres oyendo una frase o transcribiéndola */
+.icon-btn.hearing {
+  border-color: #ff8a9a;
+  box-shadow: 0 0 0 3px rgba(255, 122, 138, 0.35);
+}
 .icon-btn.add {
   background: var(--accent-2);
   border-color: var(--accent-2);
@@ -479,6 +484,32 @@ button.mini:hover {
   padding: 6px 0;
   font-size: 11.5px;
   font-family: var(--mono);
+}
+
+.field select {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #d6cfe6;
+  padding: 6px 0;
+  font-size: 11.5px;
+  font-family: var(--ui);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+.field select option {
+  background: var(--panel-2);
+  color: var(--text);
+}
+/* Aviso visual: "elige otro micro aquí" */
+.field.nudge {
+  border-color: var(--warn);
+  animation: nudge 0.9s ease-in-out 3;
+}
+@keyframes nudge {
+  50% { box-shadow: 0 0 0 3px rgba(242, 193, 78, 0.35); }
 }
 
 .composer textarea {

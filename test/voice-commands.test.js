@@ -27,6 +27,13 @@ test('dirigirse por nombre', () => {
   assert.deepEqual(p('Tars, Kitt: sincronizaos'), { type: 'send', to: ['TARS', 'KITT'], text: 'sincronizaos' });
 });
 
+test('nombre partido en dos palabras (Whisper)', () => {
+  assert.deepEqual(p('Y Arvis, revisa los testes del proyecto por favor.'), { type: 'send', to: ['JARVIS'], text: 'revisa los testes del proyecto por favor' });
+  assert.deepEqual(p('Fra idei, revisa el formulario'), { type: 'send', to: ['FRIDAY'], text: 'revisa el formulario' });
+  // una palabra normal detrás del nombre no se confunde con otro nombre
+  assert.deepEqual(p('Tars, revisa'), { type: 'send', to: ['TARS'], text: 'revisa' });
+});
+
 test('nombres con otra ortografía (Whisper)', () => {
   assert.deepEqual(p('Yarvis, planifica'), { type: 'send', to: ['JARVIS'], text: 'planifica' });
   assert.deepEqual(p('Fraidei, cambia los colores'), { type: 'send', to: ['FRIDAY'], text: 'cambia los colores' });
