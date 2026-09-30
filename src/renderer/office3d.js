@@ -109,13 +109,51 @@ function mat(color, opts) {
   return mats.get(key);
 }
 // Material de neón: color por encima de 1 para que el resplandor lo recoja.
+// Todos "respiran" (pulso suave) y de vez en cuando alguno parpadea.
+const NEON_GAIN = 0.75; // brillo general de los neones
 const neonCache = new Map();
+const neonAnims = [];
 function neon(color, strength) {
   const key = color + '|' + (strength || 3);
   if (!neonCache.has(key)) {
-    neonCache.set(key, new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(strength || 3), toneMapped: false }));
+    const m = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar((strength || 3) * NEON_GAIN), toneMapped: false });
+    neonCache.set(key, m);
+    neonAnims.push({ m, base: new THREE.Color(color), strength: (strength || 3) * NEON_GAIN, phase: Math.abs(hash(key)) % 628 / 100, flickUntil: 0 });
   }
   return neonCache.get(key);
+}
+function animateNeon(t) {
+  for (const a of neonAnims) {
+    if (!a.flickUntil && Math.random() < 0.0015) a.flickUntil = t + 60 + Math.random() * 180;
+    let k = 0.8 + 0.2 * Math.sin(t / 1400 + a.phase);
+    if (a.flickUntil) {
+      if (t > a.flickUntil) a.flickUntil = 0;
+      else k *= Math.floor(t / 45) % 2 ? 0.25 : 0.9; // parpadeo tipo tubo viejo
+    }
+    a.m.color.copy(a.base).multiplyScalar(a.strength * k);
+  }
+}
+
+// Destellos que recorren las tiras de neón (de un extremo al otro, en bucle).
+const chasers = [];
+function chaser(axis, fixed, y, from, to, color, speed, offset) {
+  const len = 0.6;
+  const geo = axis === 'x' ? new THREE.BoxGeometry(len, 0.035, 0.035) : new THREE.BoxGeometry(0.035, 0.035, len);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(4 * NEON_GAIN), toneMapped: false, transparent: true }));
+  scene.add(m);
+  chasers.push({ m, axis, fixed, y, from, to, speed, offset });
+}
+function animateChasers(t) {
+  for (const c of chasers) {
+    const span = Math.abs(c.to - c.from);
+    const k = ((t * c.speed + c.offset) % (span + 2)) - 1; // pasa fuera unos instantes
+    const pos = c.from + Math.sign(c.to - c.from) * k;
+    const visible = k >= 0 && k <= span;
+    c.m.visible = visible;
+    if (!visible) continue;
+    if (c.axis === 'x') c.m.position.set(pos, c.y, c.fixed); else c.m.position.set(c.fixed, c.y, pos);
+    c.m.material.opacity = Math.min(1, Math.min(k, span - k) * 2 + 0.2);
+  }
 }
 
 function mesh(geo, material, x, y, z, parent) {
@@ -197,7 +235,7 @@ function placeCamera() {
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.75, 0.5, 0.9);
+const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.6, 0.5, 0.92);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -252,6 +290,7 @@ const ceiling = [[3.5, 3.5], [8.5, 3.5], [3.5, 8.5], [8.5, 8.5]].map(([x, z]) =>
 // ---- Sala ciberpunk ----------------------------------------------------------------
 
 const WALL = '#1b1d2e';
+let floorGlow = null; // material del suelo (su rejilla late)
 
 function buildRoom() {
   // suelo: placas metálicas oscuras con rejilla de neón
@@ -274,7 +313,8 @@ function buildRoom() {
   const map = tile(false), em = tile(true);
   for (const t of [map, em]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(GW, GH); }
   em.colorSpace = THREE.NoColorSpace;
-  const floorTop = new THREE.MeshStandardMaterial({ map, emissiveMap: em, emissive: NEON.cyan, emissiveIntensity: 0.22, roughness: 0.32, metalness: 0.55 });
+  const floorTop = new THREE.MeshStandardMaterial({ map, emissiveMap: em, emissive: NEON.cyan, emissiveIntensity: 0.18, roughness: 0.32, metalness: 0.55 });
+  floorGlow = floorTop;
   const floorSide = mat('#0d0e16', { metalness: 0.4 });
   const floor = new THREE.Mesh(new THREE.BoxGeometry(GW, 0.25, GH), [floorSide, floorSide, floorTop, floorSide, floorSide, floorSide]);
   floor.position.set(GW / 2, -0.125, GH / 2);
@@ -309,6 +349,12 @@ function buildRoom() {
   box(-0.2, WALL_H, -0.2, 0.2, 0.04, GH + 0.2, '#0e0f18').castShadow = false;
   box(-0.2, WALL_H, -0.2, GW + 0.2, 0.04, 0.2, '#0e0f18').castShadow = false;
 
+  chaser('x', 0.07, 0.175, 0, GW, '#c8fdff', 0.0022, 0);
+  chaser('x', 0.07, 0.175, 0, GW, '#c8fdff', 0.0022, 7);
+  chaser('z', 0.07, 0.175, GH, 0, '#c8fdff', 0.0022, 3);
+  chaser('x', 0.035, WALL_H - 0.125, GW, 0, '#ffc8f4', 0.0016, 2);
+  chaser('z', 0.035, WALL_H - 0.125, 0, GH, '#ffc8f4', 0.0016, 9);
+  chaser('x', GH + 0.02, -0.03, 0, GW, '#c8fdff', 0.0028, 5);
   buildWindow('back', 5.0, 8.5);
   buildWindow('left', 4.75, 8.25);
   buildDoor();
@@ -513,7 +559,7 @@ function buildNeonSign() {
     g.shadowBlur = 0; g.strokeStyle = '#ffd6f6'; g.lineWidth = 3;
     g.strokeText('PIXEL OFFICE', W / 2, H / 2 + 4);
   });
-  neonSign = glowPanel(3.4, 0.66, tex, 2.2, null, { transparent: true, depthWrite: false });
+  neonSign = glowPanel(3.4, 0.66, tex, 1.7, null, { transparent: true, depthWrite: false });
   neonSign.position.set(6.75, 2.95, 0.04);
   // pequeño rótulo "IA ✦ 24/7" al lado
   const t2 = canvasTex(256, 256, (g, W, H) => {
@@ -525,7 +571,7 @@ function buildNeonSign() {
     g.fillStyle = NEON.yellow; g.shadowColor = NEON.yellow; g.font = 'bold 44px Consolas, monospace'; g.textAlign = 'center';
     g.fillText('24/7', 128, 225);
   });
-  const p = glowPanel(1.0, 1.0, t2, 2.0, null, { transparent: true, depthWrite: false });
+  const p = glowPanel(1.0, 1.0, t2, 1.6, null, { transparent: true, depthWrite: false });
   p.position.set(10.8, 2.2, 0.04);
 }
 
@@ -1338,7 +1384,7 @@ function applyLighting(info) {
   for (const l of neonLights) l.intensity = l.userData.base * (0.8 + 0.1 * night);
   scene.background.set(mix('#140f24', '#07060d', night));
   scene.fog.color.set(mix('#1c1430', '#0b0818', night));
-  bloom.strength = 0.65 + 0.15 * night;
+  bloom.strength = 0.5 + 0.12 * night;
 }
 neonLights.forEach((l) => { l.userData.base = l.intensity; });
 
@@ -1659,9 +1705,12 @@ function frame(t) {
     drawRack(t);
     drawHoloBoard(t);
     // parpadeo ocasional del letrero de neón
-    neonSign.material.color.setScalar(Math.random() < 0.04 ? 0.6 : 2.2);
+    neonSign.material.color.setScalar(Math.random() < 0.04 ? 0.5 : 1.55 + Math.sin(t / 900) * 0.15);
   }
   updateLedClock(new Date(now()));
+  animateNeon(t);
+  animateChasers(t);
+  if (floorGlow) floorGlow.emissiveIntensity = 0.14 + 0.06 * (0.5 + 0.5 * Math.sin(t / 1800));
   for (const d of display.values()) {
     think(d, t);
     updateCharacter(d, t, dt);

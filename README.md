@@ -32,7 +32,8 @@ Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
   - máquina expendedora, depósito de refrigerante y sofá con luz de suelo;
   - mesa holográfica en el centro;
   - ventanas a una ciudad con carteles de neón y coches voladores;
-  - resplandor (*bloom*) en todo lo que brilla.
+  - resplandor (*bloom*) en todo lo que brilla;
+  - neones animados: respiran, alguno parpadea como un tubo viejo y por las tiras corren destellos de luz.
 - El equipo son **chibis en 3D**, cada uno con su estilo:
   - JARVIS con traje y auricular;
   - FRIDAY con diadema;
@@ -45,6 +46,23 @@ Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
 - **Arrastra** para girar la cámara, **rueda** para acercar y **doble clic** para volver a la vista inicial.
 - **Clic en un personaje** (aunque esté paseando), en su mesa o en su bocadillo: pasa a ser el destino. **Ctrl+clic** lo marca para difusión.
 - Si el PC no tiene WebGL, se usa automáticamente la versión 2.5D.
+
+## El Centro de mando (panel derecho)
+- **Arriba**, los 5 del equipo como avatares, cada uno con su anillo de estado:
+  - un aro amarillo gira si está trabajando;
+  - late en verde si está hablando;
+  - cian si es tu destino y magenta si lo has marcado para difusión.
+  - **Clic** para hablarle; **Ctrl+clic** para marcar a varios.
+- **Ficha** del seleccionado: especialidad, qué está haciendo ahora mismo, sus capacitaciones (y «＋ Capacitar») y ↺ para reiniciar su conversación.
+- **Conversación**:
+  - las respuestas se muestran con formato (código, negritas) y la hora de cada mensaje;
+  - las acciones seguidas se agrupan en un desplegable «⚙ N acciones»;
+  - al final aparece «JARVIS · trabajando…» con lo que hace;
+  - si subes a leer, un botón ↓ te lleva al último mensaje;
+  - si está vacía, sugiere órdenes típicas de cada especialista.
+- **Caja de escribir**: «Para» con chips de los destinatarios, 🎤 y ➤ dentro de la caja, y **Enter** para enviar (Shift+Enter hace un salto de línea).
+- **⚙️ Ajustes** (carpeta del proyecto, micrófono, reconocimiento de voz, tipo de voces) y **❔ Ayuda** se abren como paneles desde la cabecera.
+- Arrastra el **borde izquierdo** del panel para ensancharlo; doble clic en ese borde lo devuelve al ancho normal.
 
 ## Tu equipo: 5 IAs fijas 🤖
 

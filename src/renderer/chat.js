@@ -64,11 +64,50 @@ function syncCanvas() {
   window.PIXEL_SPEAKING_SESSION = PV ? PV.speaker.speakingKey() : null;
 }
 
+// Estado en vivo de cada miembro (lo que hace ahora), del mismo canal que la oficina.
+const live = new Map(); // id -> { state, label, emoji, busy }
+if (window.office && window.office.onAgents) {
+  window.office.onAgents((p) => {
+    let changed = false;
+    for (const a of (p && p.agents) || []) {
+      const prev = live.get(a.id);
+      const next = { state: a.state, label: a.label, emoji: a.emoji, busy: !!a.busy };
+      if (!prev || prev.label !== next.label || prev.busy !== next.busy) changed = true;
+      live.set(a.id, next);
+    }
+    if (changed) { renderTeamStatus(); renderProfile(); renderTyping(); }
+  });
+}
+
+function renderTeamStatus() {
+  const el2 = el('teamStatus');
+  const busy = [...team.values()].filter((m) => (live.get(m.id) || {}).busy || m.status === 'busy');
+  el2.textContent = busy.length ? `${busy.length} trabajando: ${busy.map((m) => m.name).join(', ')}` : 'Tu equipo de 5 IAs · todos libres';
+  el2.classList.toggle('busy', busy.length > 0);
+}
+
 function updateTargetInfo() {
   const t = targets();
   const broadcast = selected.size > 1;
-  targetInfoEl.textContent = broadcast ? `🎯 ${t.length} a la vez: ${namesOf(t)}` : `🎯 ${namesOf(t)}`;
+  targetInfoEl.innerHTML = '';
   targetInfoEl.classList.toggle('broadcast', broadcast);
+  for (const id of t) {
+    const m = team.get(id);
+    if (!m) continue;
+    const chip = document.createElement('span');
+    chip.className = 'target-chip';
+    chip.appendChild(avatar(m));
+    chip.appendChild(document.createTextNode(m.name));
+    if (selected.size) {
+      const x = document.createElement('span');
+      x.className = 'x';
+      x.textContent = '✕';
+      x.title = 'Quitar';
+      x.addEventListener('click', () => { selected.delete(id); if (!selected.size) activeId = id; renderTeam(); renderConvo(); });
+      chip.appendChild(x);
+    }
+    targetInfoEl.appendChild(chip);
+  }
   syncCanvas();
 }
 
@@ -83,54 +122,57 @@ function avatar(m, big) {
 
 function skillsDone(m) { return (m.skills || []).filter((k) => k.status === 'aprendido').length; }
 
+// Plantilla: los 5 en fila. Clic = hablar con él; Ctrl/Mayús+clic = marcar varios.
 function renderTeam() {
   teamListEl.innerHTML = '';
   const speakingKey = PV ? PV.speaker.speakingKey() : null;
   for (const m of team.values()) {
-    const card = document.createElement('div');
-    card.className = 'member' + (m.id === activeId && !selected.size ? ' active' : '') +
-      (selected.has(m.id) ? ' picked' : '') + (m.id === speakingKey ? ' speaking' : '');
-    card.title = `${m.name} (${m.from}) — ${m.role}`;
-
-    const pick = document.createElement('input');
-    pick.type = 'checkbox';
-    pick.className = 'pick';
-    pick.checked = selected.has(m.id);
-    pick.title = 'Marcar para difusión';
-    pick.addEventListener('click', (e) => e.stopPropagation());
-    pick.addEventListener('change', () => {
-      if (pick.checked) selected.add(m.id); else selected.delete(m.id);
-      renderTeam();
-    });
-
-    const info = document.createElement('div');
-    info.className = 'member-info';
-    const name = document.createElement('div');
-    name.className = 'member-name';
+    const lv = live.get(m.id) || {};
+    const busy = lv.busy || m.status === 'busy';
+    const item = document.createElement('button');
+    item.className = 'dock-item' + (m.id === activeId && !selected.size ? ' active' : '') +
+      (selected.has(m.id) ? ' picked' : '') + (m.id === speakingKey ? ' speaking' : '') +
+      (busy ? ' busy' : '') + (m.status === 'error' ? ' error' : '');
+    item.title = `${m.name} — ${m.role} (IA de «${m.from}»)\nClic: hablarle · Ctrl+clic: marcar para difusión`;
+    const av = document.createElement('span');
+    av.className = 'dock-av';
+    av.style.background = `radial-gradient(circle at 35% 30%, ${m.look ? m.look.shirt : '#555'}, #0e0c19 130%)`;
+    av.style.color = m.look && m.look.accent ? m.look.accent : '#fff';
+    av.textContent = m.name.charAt(0);
+    const em = document.createElement('span');
+    em.className = 'dock-emoji';
+    em.textContent = m.emoji;
+    av.appendChild(em);
+    item.appendChild(av);
+    const name = document.createElement('span');
+    name.className = 'dock-name';
     name.textContent = m.name;
-    const dot = document.createElement('span');
-    dot.className = 'dot ' + (m.status === 'busy' ? 'busy' : m.status === 'error' ? 'err' : 'live');
-    name.appendChild(dot);
-    const role = document.createElement('div');
-    role.className = 'member-role';
+    item.appendChild(name);
     const learned = skillsDone(m);
-    const learning = (m.skills || []).some((k) => k.status === 'aprendiendo');
-    role.textContent = m.emoji + ' ' + m.role + (learned ? ` · 🎓${learned}` : '') + (learning ? ' · ⏳' : '');
-    info.appendChild(name);
-    info.appendChild(role);
-
-    card.appendChild(pick);
-    card.appendChild(avatar(m));
-    card.appendChild(info);
-    card.addEventListener('click', () => focusMember(m.id));
-    teamListEl.appendChild(card);
+    if (learned) {
+      const b = document.createElement('span');
+      b.className = 'dock-badge';
+      b.textContent = `🎓${learned}`;
+      b.title = `${learned} capacitación(es)`;
+      item.appendChild(b);
+    }
+    if (selected.has(m.id)) {
+      const c = document.createElement('span');
+      c.className = 'dock-check';
+      c.textContent = '✓';
+      item.appendChild(c);
+    }
+    item.addEventListener('click', (e) => focusMember(m.id, e.ctrlKey || e.shiftKey || e.metaKey));
+    teamListEl.appendChild(item);
   }
   updateTargetInfo();
+  renderTeamStatus();
 }
 
 function focusMember(id, additive) {
   if (!team.has(id)) return;
   if (additive) {
+    if (!selected.size && activeId && activeId !== id) selected.add(activeId);
     if (selected.has(id)) selected.delete(id); else selected.add(id);
   } else {
     selected.clear();
@@ -140,20 +182,34 @@ function focusMember(id, additive) {
   renderConvo();
 }
 
-// Ficha del miembro activo: especialidad y capacitaciones.
-function renderProfile(m) {
-  const box = document.createElement('div');
-  box.className = 'profile';
+// Ficha del miembro activo: especialidad, qué hace ahora y capacitaciones.
+function renderProfile() {
+  const box = el('profile');
+  const m = team.get(activeId);
+  box.innerHTML = '';
+  if (!m) return;
+  const lv = live.get(m.id) || {};
   const top = document.createElement('div');
   top.className = 'profile-top';
-  top.appendChild(avatar(m, true));
-  const txt = document.createElement('div');
-  txt.innerHTML = '<div class="profile-name"></div><div class="profile-role"></div>';
-  txt.querySelector('.profile-name').textContent = `${m.name}`;
-  txt.querySelector('.profile-role').textContent = `${m.emoji} ${m.role} · IA de «${m.from}»`;
-  top.appendChild(txt);
+  const av = avatar(m, true);
+  top.appendChild(av);
+  const main = document.createElement('div');
+  main.className = 'profile-main';
+  main.innerHTML = '<div class="profile-name"><span></span><span class="profile-from"></span></div>' +
+    '<div class="profile-role"></div><div class="profile-state"><i></i><span></span></div>';
+  main.querySelector('.profile-name span').textContent = m.name;
+  main.querySelector('.profile-from').textContent = `IA de «${m.from}»`;
+  main.querySelector('.profile-role').textContent = `${m.emoji} ${m.role}`;
+  const st = main.querySelector('.profile-state');
+  const busy = lv.busy || m.status === 'busy';
+  st.classList.toggle('busy', busy);
+  st.classList.toggle('error', m.status === 'error');
+  st.querySelector('span').textContent = m.status === 'error' ? 'con un problema (mira el chat)'
+    : busy ? (lv.busy && lv.label && lv.label !== 'disponible' ? `${lv.emoji || '⚙️'} ${lv.label}` : '⚙️ trabajando…')
+      : 'libre · esperando órdenes';
+  top.appendChild(main);
   const reset = document.createElement('button');
-  reset.className = 'mini';
+  reset.className = 'icon-btn';
   reset.textContent = '↺';
   reset.title = 'Reiniciar conversación (lo aprendido se conserva)';
   reset.addEventListener('click', () => resetIds([m.id]));
@@ -162,10 +218,6 @@ function renderProfile(m) {
 
   const skills = document.createElement('div');
   skills.className = 'skills';
-  if (!(m.skills || []).length) {
-    skills.innerHTML = '<span class="skills-empty">🎓 Sin capacitaciones aún. Escribe un tema y pulsa 🎓, o di «' +
-      m.name + ', capacítate en …».</span>';
-  }
   for (const k of m.skills || []) {
     const chip = document.createElement('span');
     chip.className = 'skill ' + (k.status || '');
@@ -187,57 +239,172 @@ function renderProfile(m) {
     chip.appendChild(x);
     skills.appendChild(chip);
   }
+  const add = document.createElement('span');
+  add.className = 'skill add';
+  add.textContent = '＋ Capacitar';
+  add.title = `Escribe un tema en la caja y pulsa 🎓 Capacitar (o di «${m.name}, capacítate en …»)`;
+  add.addEventListener('click', () => {
+    msgEl.focus();
+    msgEl.placeholder = `Tema en el que se capacitará ${m.name} (p. ej. Docker)… y pulsa 🎓 Capacitar`;
+    hint(`🎓 Escribe el tema y pulsa «🎓 Capacitar».`);
+  });
+  skills.appendChild(add);
   box.appendChild(skills);
-  return box;
 }
 
-function renderConvo() {
+// Markdown mínimo y seguro: se escapa todo y luego se añaden etiquetas.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function renderMarkdown(text) {
+  const parts = String(text || '').split(/```/);
+  return parts.map((p, i) => {
+    if (i % 2) {
+      const code = p.replace(/^[\w+-]*\n/, '');
+      return `<pre><code>${escapeHtml(code.replace(/\n$/, ''))}</code></pre>`;
+    }
+    return escapeHtml(p)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/^#{1,6}\s*(.+)$/gm, '<strong>$1</strong>');
+  }).join('');
+}
+
+function hhmm(t) {
+  const d = new Date(t || Date.now());
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+const SUGGESTIONS = {
+  jarvis: ['Planifica las próximas tareas', 'Revisa la arquitectura del proyecto'],
+  friday: ['Mejora el diseño de la página principal', 'Revisa la accesibilidad'],
+  tars: ['Revisa la API y la base de datos', 'Optimiza las consultas lentas'],
+  edith: ['Ejecuta los tests y dime qué falla', 'Haz una revisión de seguridad'],
+  kitt: ['Prepara el build de producción', 'Revisa el estado de git'],
+};
+
+function nearBottom() { return convoEl.scrollHeight - convoEl.scrollTop - convoEl.clientHeight < 80; }
+
+function renderConvo(forceBottom) {
+  const stick = forceBottom || nearBottom();
   convoEl.innerHTML = '';
+  renderProfile();
   const m = team.get(activeId);
   if (!m) return;
-  convoEl.appendChild(renderProfile(m));
+  const who = m.look ? m.look.accent || '#29f0ff' : '#29f0ff';
   if (!m.messages.length) {
     const d = document.createElement('div');
     d.className = 'empty-convo';
-    d.innerHTML = `Habla o escribe a <b>${m.name}</b>. Mantén <b>🎤</b> (o Ctrl+Espacio), o haz un clic y habla:` +
-      ' se envía solo al callarte.<br><br><i>«' + m.name + ', …»</i> para dirigirte a alguien del equipo.';
+    d.innerHTML = `<div class="empty-icon">${m.emoji}</div>Habla o escribe a <b>${escapeHtml(m.name)}</b>.<br>` +
+      'Mantén <b>🎤</b> (o Ctrl+Espacio), o haz un clic y habla: se envía solo al callarte.';
+    const sug = document.createElement('div');
+    sug.className = 'suggestions';
+    for (const s of SUGGESTIONS[m.id] || []) {
+      const b = document.createElement('button');
+      b.className = 'suggestion';
+      b.textContent = s;
+      b.addEventListener('click', () => { msgEl.value = s; autoGrow(); msgEl.focus(); });
+      sug.appendChild(b);
+    }
+    d.appendChild(sug);
     convoEl.appendChild(d);
   }
+  let tools = null; // acciones seguidas se agrupan en un desplegable
   for (const msg of m.messages) {
-    if (msg.role === 'assistant') {
-      const row = document.createElement('div');
-      row.className = 'msg-row';
-      row.appendChild(avatar(m));
-      const b = document.createElement('div');
-      b.className = 'bubble assistant';
-      b.textContent = msg.text;
-      row.appendChild(b);
-      convoEl.appendChild(row);
+    if (msg.role === 'tool') {
+      if (!tools) {
+        tools = document.createElement('details');
+        tools.className = 'tools';
+        tools.innerHTML = '<summary></summary><ol></ol>';
+        convoEl.appendChild(tools);
+      }
+      const li = document.createElement('li');
+      li.textContent = msg.text;
+      li.title = msg.text;
+      tools.querySelector('ol').appendChild(li);
+      const n = tools.querySelectorAll('li').length;
+      tools.querySelector('summary').textContent = `⚙ ${n} ${n === 1 ? 'acción' : 'acciones'} · ${msg.text}`;
+      continue;
+    }
+    tools = null;
+    if (msg.role === 'assistant' || msg.role === 'user') {
+      const wrap = document.createElement('div');
+      wrap.className = `msg ${msg.role}` + (msg.voice ? ' voice' : '');
+      const meta = document.createElement('div');
+      meta.className = 'msg-meta';
+      if (msg.role === 'assistant') {
+        meta.appendChild(avatar(m));
+        const b = document.createElement('b');
+        b.textContent = m.name;
+        meta.appendChild(b);
+      } else {
+        const who2 = document.createElement('span');
+        who2.textContent = msg.voice ? '🎤 tú (voz)' : 'tú';
+        meta.appendChild(who2);
+      }
+      const time = document.createElement('span');
+      time.textContent = hhmm(msg.at);
+      meta.appendChild(time);
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      if (msg.role === 'assistant') {
+        bubble.style.setProperty('--who', who);
+        bubble.innerHTML = renderMarkdown(msg.text);
+      } else {
+        bubble.textContent = msg.text;
+      }
+      wrap.appendChild(meta);
+      wrap.appendChild(bubble);
+      convoEl.appendChild(wrap);
       continue;
     }
     const div = document.createElement('div');
-    if (msg.role === 'user') {
-      div.className = 'bubble user' + (msg.voice ? ' voice' : '');
-      div.textContent = (msg.voice ? '🎤 ' : '') + msg.text;
-    } else if (msg.role === 'tool') { div.className = 'line-tool'; div.textContent = '⚙️ ' + msg.text; }
-    else if (msg.role === 'error') { div.className = 'line-error'; div.textContent = '⚠️ ' + msg.text; }
+    if (msg.role === 'error') { div.className = 'line-error'; div.textContent = '⚠️ ' + msg.text; }
     else { div.className = 'line-system'; div.textContent = msg.text; }
     convoEl.appendChild(div);
   }
-  convoEl.scrollTop = convoEl.scrollHeight;
+  renderTyping();
+  if (stick) convoEl.scrollTop = convoEl.scrollHeight;
+  updateToBottom();
 }
+
+// "JARVIS está trabajando…" con lo que hace ahora, al final de la conversación.
+function renderTyping() {
+  const old = convoEl.querySelector('.typing');
+  if (old) old.remove();
+  const m = team.get(activeId);
+  if (!m) return;
+  const lv = live.get(m.id) || {};
+  if (!(lv.busy || m.status === 'busy')) return;
+  const stick = nearBottom();
+  const t = document.createElement('div');
+  t.className = 'typing';
+  t.innerHTML = '<span class="dots"><i></i><i></i><i></i></span><span></span>';
+  t.lastChild.textContent = `${m.name} · ${lv.busy && lv.label && lv.label !== 'disponible' ? `${lv.emoji || ''} ${lv.label}` : 'trabajando…'}`;
+  convoEl.appendChild(t);
+  if (stick) convoEl.scrollTop = convoEl.scrollHeight;
+}
+
+const toBottomBtn = el('toBottom');
+function updateToBottom() { toBottomBtn.hidden = nearBottom(); }
+convoEl.addEventListener('scroll', updateToBottom);
+toBottomBtn.addEventListener('click', () => { convoEl.scrollTop = convoEl.scrollHeight; });
 
 function push(id, role, text, extra) {
   const m = team.get(id);
   if (!m) return;
-  m.messages.push(Object.assign({ role, text }, extra || {}));
+  m.messages.push(Object.assign({ role, text, at: Date.now() }, extra || {}));
   if (m.messages.length > 300) m.messages.splice(0, m.messages.length - 300);
-  if (id === activeId) renderConvo();
+  if (id === activeId) renderConvo(role === 'user');
 }
 
 function setStatus(id, status) {
   const m = team.get(id);
-  if (m && m.status !== status) { m.status = status; renderTeam(); }
+  if (m && m.status !== status) {
+    m.status = status;
+    renderTeam();
+    if (id === activeId) { renderProfile(); renderTyping(); }
+  }
 }
 
 async function refreshTeam() {
@@ -324,6 +491,13 @@ async function runCommand(text, voice) {
 
   switch (cmd.type) {
     case 'empty':
+      // solo muletillas ("hola", "vale"…): es un saludo, se lo mandamos tal cual
+      if (String(text).trim()) {
+        const ids = targets();
+        const sent = await sendTo(ids, String(text).trim(), extra);
+        if (sent) hint(`${heard} → enviado a ${namesOf(ids)}`);
+        return;
+      }
       hint('No te he entendido. Prueba otra vez.', true);
       return;
     case 'silence':
@@ -371,6 +545,8 @@ async function send() {
   const text = msgEl.value.trim();
   if (!text) { msgEl.focus(); return; }
   msgEl.value = '';
+  autoGrow();
+  msgEl.placeholder = 'Escribe una orden… o habla con 🎤';
   await runCommand(text, false);
 }
 
@@ -393,8 +569,58 @@ el('stopBtn').addEventListener('click', () => interruptIds(targets()));
 el('selAll').addEventListener('click', () => { for (const id of team.keys()) selected.add(id); renderTeam(); });
 el('selNone').addEventListener('click', () => { selected.clear(); renderTeam(); renderConvo(); });
 msgEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
+function autoGrow() {
+  msgEl.style.height = 'auto';
+  msgEl.style.height = Math.min(160, msgEl.scrollHeight) + 'px';
+}
+msgEl.addEventListener('input', autoGrow);
+
+// ---- Paneles de ajustes y ayuda --------------------------------------------
+
+const drawers = { settings: el('settingsDrawer'), help: el('helpDrawer') };
+const drawerBtns = { settings: el('settingsBtn'), help: el('helpBtn') };
+function toggleDrawer(name, open) {
+  for (const [k, d] of Object.entries(drawers)) {
+    const show = k === name ? (open == null ? d.hidden : open) : false;
+    d.hidden = !show;
+    drawerBtns[k].classList.toggle('open', show);
+  }
+}
+drawerBtns.settings.addEventListener('click', () => toggleDrawer('settings'));
+drawerBtns.help.addEventListener('click', () => toggleDrawer('help'));
+for (const d of Object.values(drawers)) {
+  d.querySelector('[data-close]').addEventListener('click', () => toggleDrawer(null));
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && Object.values(drawers).some((d) => !d.hidden)) { toggleDrawer(null); e.stopImmediatePropagation(); }
+}, true);
+
+// ---- Ancho del panel (arrastrando su borde) --------------------------------
+
+(() => {
+  const chatEl = el('chat');
+  const handle = el('chatResize');
+  const KEY = 'pixel.panel.ancho';
+  const setW = (w) => document.documentElement.style.setProperty('--chat-w', Math.round(Math.max(320, Math.min(620, w))) + 'px');
+  try { const w = +localStorage.getItem(KEY); if (w) setW(w); } catch (_) { /* noop */ }
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    const move = (ev) => setW(window.innerWidth - ev.clientX);
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.classList.remove('dragging');
+      try { localStorage.setItem(KEY, String(chatEl.getBoundingClientRect().width)); } catch (_) { /* noop */ }
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+  });
+  handle.addEventListener('dblclick', () => { setW(380); try { localStorage.removeItem(KEY); } catch (_) { /* noop */ } });
+})();
 cwdEl.addEventListener('change', applyCwd);
 cwdEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); cwdEl.blur(); } });
 
@@ -466,6 +692,7 @@ async function refreshMics() {
 }
 
 function nudgeMicField() {
+  toggleDrawer('settings', true);
   micField.classList.remove('nudge');
   void micField.offsetWidth; // reinicia la animación
   micField.classList.add('nudge');

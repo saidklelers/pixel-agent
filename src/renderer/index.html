@@ -13,85 +13,100 @@
         <div id="overlay"></div>
       </div>
       <aside id="chat">
-        <div class="chat-head">
+        <div id="chatResize" class="chat-resize" title="Arrastra para cambiar el ancho del panel"></div>
+        <header class="chat-head">
           <div class="brand">
             <span class="logo">🛰️</span>
             <div>
               <div class="chat-title">Centro de mando</div>
-              <div class="chat-sub">Tu equipo de 5 IAs</div>
+              <div class="chat-sub"><span id="teamStatus">Tu equipo de 5 IAs</span></div>
             </div>
           </div>
           <div class="head-actions">
             <button id="handsBtn" class="icon-btn off" title="Manos libres: el micro escucha siempre y reconoce a quién le hablas por su nombre">👂</button>
             <button id="ttsBtn" class="icon-btn" title="Leer las respuestas en voz alta">🔊</button>
             <button id="skipBtn" class="icon-btn" title="Callar al equipo (Esc)">⏹</button>
+            <button id="settingsBtn" class="icon-btn" title="Ajustes: carpeta, micrófono y voz">⚙️</button>
+            <button id="helpBtn" class="icon-btn" title="¿Qué puedo decir?">❔</button>
           </div>
+        </header>
+
+        <nav id="agentList" class="team-dock" aria-label="Equipo"></nav>
+        <section id="profile" class="profile-bar"></section>
+
+        <div class="convo-wrap">
+          <div id="convo" class="convo"></div>
+          <button id="toBottom" class="to-bottom" hidden title="Ir al último mensaje">↓</button>
         </div>
-        <div id="agentList" class="team-list"></div>
-        <div id="convo" class="convo"></div>
+
         <div id="voiceStatus" class="voice-status" hidden>
           <div class="vs-text"></div>
           <div class="vs-bar"><div class="vs-fill"></div></div>
         </div>
+
         <div class="composer">
           <div class="targets">
-            <span id="targetInfo" class="target-info">🎯 JARVIS</span>
+            <span class="to-label">Para</span>
+            <span id="targetInfo" class="target-chips"></span>
             <span class="target-actions">
-              <button id="selAll" class="mini">Todos</button>
-              <button id="selNone" class="mini">Uno</button>
+              <button id="selAll" class="mini" title="Hablar a todo el equipo a la vez">Todos</button>
+              <button id="selNone" class="mini" title="Hablar solo con el seleccionado">Uno</button>
             </span>
           </div>
-          <div class="fields">
-            <label class="field grow" title="Carpeta del proyecto en el que trabaja el equipo">
-              <span class="field-icon">📁</span>
-              <input id="cwd" spellcheck="false" placeholder="Carpeta del proyecto" />
-            </label>
-            <label id="micField" class="field" title="Micrófono con el que hablas al equipo">
-              <span class="field-icon">🎙️</span>
-              <select id="micSelect"><option value="">Micrófono de Windows</option></select>
-            </label>
-          </div>
-          <textarea id="msg" rows="3" placeholder="Escribe una orden… o mantén 🎤 / Ctrl+Espacio y habla"></textarea>
-          <div class="composer-row">
+          <div class="input-shell">
             <button id="micBtn" class="mic" data-state="idle" title="Mantén pulsado para hablar (o Ctrl+Espacio). Un clic: habla y se envía solo al callarte.">
               <span class="mic-ring"></span>
               <span class="mic-icon">🎤</span>
             </button>
-            <button id="sendBtn" class="primary">Enviar</button>
-            <button id="trainBtn" title="Capacitar al destino en el tema escrito en la caja">🎓 Capacitar</button>
-            <button id="stopBtn" class="danger" title="Interrumpir al destino">■</button>
+            <textarea id="msg" rows="1" placeholder="Escribe una orden… o habla con 🎤"></textarea>
+            <button id="sendBtn" class="send" title="Enviar (Enter)">➤</button>
+          </div>
+          <div class="composer-row">
+            <button id="trainBtn" class="chip-btn" title="Capacitar al destino en el tema escrito en la caja">🎓 Capacitar</button>
+            <button id="stopBtn" class="chip-btn danger" title="Interrumpir al destino">■ Interrumpir</button>
+            <span class="kbd">Enter envía · Shift+Enter salto · Ctrl+Espacio habla</span>
           </div>
           <div id="hint" class="hint"></div>
-          <div class="voice-settings">
-            <label title="Whisper small entiende mucho mejor el español (descarga ~500 MB la primera vez); base es más ligero y rápido">
-              🎙️ Te entiendo:
-              <select id="sttQuality">
-                <option value="precisa">Preciso</option>
-                <option value="rapida">Rápido</option>
-              </select>
-            </label>
-            <label title="Voces naturales: neuronales de Microsoft, suenan como personas (necesitan internet). Del sistema: las de Windows, sin internet.">
-              🔊 Voces:
-              <select id="ttsMode">
-                <option value="natural">Naturales</option>
-                <option value="sistema">Del sistema</option>
-              </select>
-            </label>
-          </div>
-          <details class="voice-help">
-            <summary>🎙️ ¿Qué puedo decir?</summary>
-            <ul>
-              <li><b>👂 Manos libres</b> — sin pulsar nada: di el nombre y habla («JARVIS, planifica el login»). Durante unos segundos puedes seguir sin repetirlo; lo que no empieza por un nombre se ignora.</li>
-              <li><b>«JARVIS, planifica el login»</b> — habla con uno (sin nombre va al destino)</li>
-              <li><b>«FRIDAY y EDITH: revisad el formulario»</b> — a varios</li>
-              <li><b>«Todos, actualizad la rama»</b> — a todo el equipo</li>
-              <li><b>«KITT, capacítate en Kubernetes»</b> — aprende algo y lo recuerda siempre</li>
-              <li><b>«Para» / «TARS, para» / «Todos, paren»</b> — interrumpir</li>
-              <li><b>«Reinicia a TARS»</b> — olvida la conversación (pide confirmación)</li>
-              <li><b>«EDITH»</b> — elegirla como destino · <b>«Silencio»</b> — callar las voces</li>
-              <li>Equipo: 🧠 JARVIS arquitectura · 🎨 FRIDAY frontend · 🗄️ TARS backend · 🛡️ EDITH QA y seguridad · 🚀 KITT DevOps</li>
-            </ul>
-          </details>
+        </div>
+
+        <div id="settingsDrawer" class="drawer" hidden>
+          <div class="drawer-head"><b>⚙️ Ajustes</b><button class="icon-btn drawer-close" data-close title="Cerrar (Esc)">✕</button></div>
+          <label class="setting">
+            <span class="setting-title">📁 Carpeta del proyecto</span>
+            <span class="setting-help">Donde trabaja el equipo. Cada carpeta tiene su propia conversación.</span>
+            <span class="field grow"><input id="cwd" spellcheck="false" placeholder="C:\Proyectos\mi-app" /></span>
+          </label>
+          <label id="micField" class="setting field-like" title="Micrófono con el que hablas al equipo">
+            <span class="setting-title">🎙️ Micrófono</span>
+            <span class="setting-help">Si no te oye, prueba otro: el anillo del 🎤 se mueve cuando capta tu voz.</span>
+            <span class="field grow"><select id="micSelect"><option value="">Micrófono de Windows</option></select></span>
+          </label>
+          <label class="setting">
+            <span class="setting-title">🧠 Reconocimiento de voz</span>
+            <span class="setting-help">Preciso usa Whisper small (~500 MB la 1.ª vez); Rápido usa Whisper base.</span>
+            <span class="field grow"><select id="sttQuality"><option value="precisa">Preciso</option><option value="rapida">Rápido</option></select></span>
+          </label>
+          <label class="setting">
+            <span class="setting-title">🔊 Voces del equipo</span>
+            <span class="setting-help">Naturales: voces neuronales (necesitan internet). Del sistema: las de Windows.</span>
+            <span class="field grow"><select id="ttsMode"><option value="natural">Naturales</option><option value="sistema">Del sistema</option></select></span>
+          </label>
+        </div>
+
+        <div id="helpDrawer" class="drawer" hidden>
+          <div class="drawer-head"><b>🎙️ ¿Qué puedo decir?</b><button class="icon-btn drawer-close" data-close title="Cerrar (Esc)">✕</button></div>
+          <ul class="help-list">
+            <li><b>👂 Manos libres</b><span>Sin pulsar nada: di el nombre y habla («JARVIS, planifica el login»). Unos segundos después puedes seguir sin repetirlo.</span></li>
+            <li><b>«JARVIS, planifica el login»</b><span>Habla con uno. Sin nombre, va al destino marcado arriba.</span></li>
+            <li><b>«FRIDAY y EDITH: revisad el formulario»</b><span>A varios a la vez.</span></li>
+            <li><b>«Todos, actualizad la rama»</b><span>A todo el equipo.</span></li>
+            <li><b>«KITT, capacítate en Kubernetes»</b><span>Aprende un tema y lo recuerda siempre.</span></li>
+            <li><b>«Para» · «TARS, para» · «Todos, paren»</b><span>Interrumpir.</span></li>
+            <li><b>«Reinicia a TARS»</b><span>Olvida la conversación (pide confirmación).</span></li>
+            <li><b>«EDITH» · «Silencio»</b><span>Elegirla como destino · callar las voces.</span></li>
+            <li><b>Ratón</b><span>Clic en un avatar o en un personaje de la oficina para hablarle; Ctrl+clic para marcar varios.</span></li>
+          </ul>
+          <div class="help-team">🧠 JARVIS arquitectura · 🎨 FRIDAY frontend · 🗄️ TARS backend · 🛡️ EDITH QA y seguridad · 🚀 KITT DevOps</div>
         </div>
       </aside>
     </div>
