@@ -9,7 +9,8 @@ contextBridge.exposeInMainWorld('office', {
 // El equipo: 5 agentes fijos (JARVIS, FRIDAY, TARS, EDITH, KITT)
 contextBridge.exposeInMainWorld('teamApi', {
   list: () => ipcRenderer.invoke('team:list'),
-  send: (id, text) => ipcRenderer.invoke('team:send', { id, text }),
+  // opts: { docs: [ids de adjuntos], delegate: que el líder lo reparta en el equipo }
+  send: (id, text, opts) => ipcRenderer.invoke('team:send', Object.assign({ id, text }, opts || {})),
   interrupt: (id) => ipcRenderer.invoke('team:interrupt', { id }),
   reset: (id) => ipcRenderer.invoke('team:reset', { id }),
   train: (id, topic) => ipcRenderer.invoke('team:train', { id, topic }),
@@ -18,6 +19,18 @@ contextBridge.exposeInMainWorld('teamApi', {
   // personalizar nombre, especialidad, colores, voz… (custom = null: restaurar)
   customize: (id, custom) => ipcRenderer.invoke('team:customize', { id, custom }),
   onEvent: (cb) => ipcRenderer.on('agent:event', (_e, data) => cb(data)),
+});
+
+// Documentos adjuntos (requerimientos): el render manda los bytes y el
+// proceso principal saca el texto (PDF, Word, Excel, PowerPoint, TXT…)
+contextBridge.exposeInMainWorld('docsApi', {
+  attach: (name, bytes) => ipcRenderer.invoke('docs:attach', { name, bytes }),
+});
+
+// Planes de reparto de JARVIS
+contextBridge.exposeInMainWorld('planApi', {
+  list: () => ipcRenderer.invoke('plan:list'),
+  cancel: (id) => ipcRenderer.invoke('plan:cancel', { id }),
 });
 
 // Tablero de tareas y lo que hace cada agente (pantallas)

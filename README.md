@@ -8,6 +8,7 @@ en la web…).
 Desde el **Centro de mando** (panel derecho) diriges a tu **equipo fijo de 5
 IAs** (JARVIS, FRIDAY, TARS, EDITH y KITT), cada una especializada en una parte
 del desarrollo, **escribiendo o hablando**; te contestan **en voz alta**.
+Pásale a JARVIS un **requerimiento** (PDF, Word, TXT…) y él **reparte el trabajo** en el equipo.
 
 ## Requisitos
 - Node.js 18+ (tienes v24, perfecto)
@@ -66,6 +67,29 @@ Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
 - **⚙️ Ajustes** (carpeta del proyecto, micrófono, reconocimiento de voz, tipo de voces, personalizar equipo) y **❔ Ayuda** se abren como paneles desde la cabecera. **📋** abre las pantallas del equipo.
 - En la ficha: **🖥️** abre su pantalla y **✎** lo personaliza.
 - Arrastra el **borde izquierdo** del panel para ensancharlo; doble clic en ese borde lo devuelve al ancho normal.
+
+## Pasarle un requerimiento a JARVIS 📎🧭
+JARVIS es el líder: le das un documento con lo que hay que hacer y él **reparte el trabajo** en el equipo.
+
+1. Pulsa **📎** en la caja de escribir (o **arrastra el archivo** a la ventana). Vale:
+   - **PDF**;
+   - **Word** (.docx), **Excel** (.xlsx) y **PowerPoint** (.pptx);
+   - **OpenDocument** (.odt, .ods, .odp) y **RTF**;
+   - **TXT**, **Markdown**, **CSV**, **JSON**, **HTML** y código;
+   - **imágenes** (mockups, capturas): JARVIS las abre y las ve.
+   El chip del adjunto dice lo que ha leído (páginas y caracteres). Los .doc/.xls antiguos hay que guardarlos antes como .docx/.xlsx.
+2. Con **JARVIS** como destino aparece **«🧭 Que JARVIS lo reparta en el equipo»** (marcado). Añade indicaciones si quieres («para el viernes») y pulsa **Enter**.
+3. JARVIS lee el requerimiento, lo divide en tareas según la especialidad de cada uno y **las asigna**:
+   - las que no dependen de nada empiezan **a la vez**;
+   - las que dependen de otras **esperan su turno** (p. ej. los tests de EDITH después de la API de TARS y del botón de FRIDAY);
+   - quien empieza una tarea recibe lo que hicieron aquellas de las que depende.
+   En la oficina lo ves ir **a la mesa de cada compañero a darle su tarea** 📋.
+4. En su conversación aparece la **tarjeta del plan**: cada tarea con su responsable y su estado (en espera, trabajando, hecha, falló, bloqueada). Clic en una tarea para ver la pantalla de quien la hace; «✕ Cancelar lo que falta» para que no se envíe lo que no ha empezado.
+5. Cuando terminan todos, JARVIS recibe el **informe del plan**, revisa el trabajo (puede ejecutar los tests) y, si falta algo, vuelve a repartir solo eso (como mucho 3 rondas). Al final te da un resumen.
+
+Cada miembro ve en su conversación la tarea que le ha asignado JARVIS («🧭 JARVIS te asigna»), y en su pantalla y en el tablero aparece «🧭 de JARVIS».
+Los documentos se guardan (original y texto) en la carpeta `requerimientos` de los datos de la app, para que el equipo pueda volver a consultarlos.
+Para cosas pequeñas o preguntas, JARVIS contesta él mismo sin repartir.
 
 ## Las pantallas del equipo 🖥️
 Para ver qué está haciendo o validando cada uno. Se abren con un clic en la
@@ -181,7 +205,8 @@ Microsoft, las de «Leer en voz alta» de Edge), que suenan como una persona:
 npm test
 ```
 Prueban el intérprete de órdenes por voz (`src/renderer/voice-commands.js`), el
-tablero de tareas (`src/board.js`) y la personalización del equipo (`src/team.js`).
+tablero de tareas (`src/board.js`), la personalización del equipo (`src/team.js`),
+la lectura de documentos (`src/docs.js`) y los planes de reparto (`src/plans.js`).
 
 ## Crear el instalador + acceso directo en el escritorio
 ```bash
@@ -193,6 +218,8 @@ crea automáticamente el **acceso directo en el escritorio** y en el menú inici
 ## Cómo funciona
 - `src/team.js` — el equipo: nombres, especialidades, aspecto, prompts y personalización.
 - `src/board.js` — el tablero de tareas: órdenes, pasos de cada agente y coste.
+- `src/docs.js` — lee los documentos adjuntos (PDF, Word, Excel, PowerPoint, RTF, HTML, texto).
+- `src/plans.js` — los planes de reparto de JARVIS: tareas, dependencias e informe final.
 - `src/main.js` — proceso principal de Electron: sesiones del equipo con el
   Claude Agent SDK (reanudables), capacitaciones, estado para el render y
   permiso del micrófono (solo audio).
@@ -203,6 +230,7 @@ crea automáticamente el **acceso directo en el escritorio** y en el menú inici
 - `src/renderer/chat.js` — Centro de mando: agentes, órdenes, micro y voces.
 - `src/renderer/screen.js` — las pantallas de los agentes y el tablero del equipo.
 - `src/renderer/team-editor.js` — Personalizar equipo.
+- `src/renderer/attach.js` — adjuntar documentos (📎 y arrastrar y soltar).
 - `src/renderer/voice.js` — grabación del micrófono y cola de voces.
 - `src/renderer/voice-commands.js` — intérprete de órdenes habladas.
 - `src/preload.js` — puente seguro entre proceso principal y render.

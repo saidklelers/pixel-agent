@@ -1243,9 +1243,39 @@ function wander(d) {
 }
 
 // Qué hace cada uno cuando no le llega trabajo.
+// Recados: cuando JARVIS reparte un plan, va a la mesa de cada compañero a
+// darle su tarea (aunque esté ocupado) y luego vuelve a la suya.
+function errand(d, t) {
+  if (d.mode === 'walk-intro') return;
+  // ya va a entregar una tarea (o vuelve del último recado): que siga
+  if (d.mode === 'walk' && d.goal && (d.goal.errand || (d.goal === 'seat' && !d.errands.length))) return;
+  if (d.mode === 'hang' && d.spot && d.spot.errand && t < d.until) return;
+  if (d.spot && d.spot.errand) { d.spot.takenBy = null; d.spot = null; }
+  const o = display.get(d.errands.shift());
+  if (o && o !== d) {
+    const s = visitSpotFor(o);
+    s.errand = true;
+    s.label = `📋 dándole su tarea a ${o.name}`;
+    goTo(d, s, true);
+    return;
+  }
+  d.errands = [];
+  if (d.mode === 'walk' && d.goal === 'seat') return;
+  if (d.mode === 'seated') { d.onErrand = false; return; }
+  goTo(d, 'seat', true);
+}
+window.addEventListener('pixel:delegate', (e) => {
+  const { from, to } = e.detail || {};
+  const d = display.get(from);
+  if (!d || !Array.isArray(to) || !to.length) return;
+  d.errands = to.filter((id) => id !== from && display.has(id));
+  d.onErrand = d.errands.length > 0;
+});
+
 function think(d, t) {
   const idle = !d.busy && (d.state === 'idle' || !d.state);
   if (d.mode === 'intro') return;
+  if (d.onErrand) { errand(d, t); return; }
   if (!idle) {
     // le ha llegado trabajo: a su mesa (corriendo)
     if (d.goal !== 'seat' || d.mode === 'hang' || d.mode === 'sofa') goTo(d, 'seat', true);
@@ -1267,6 +1297,7 @@ function think(d, t) {
 
 function arrive(d, t) {
   if (d.goal === 'seat') {
+    if (d.onErrand && !d.errands.length) d.onErrand = false;
     d.mode = 'seated';
     d.idleSince = 0;
     if (d.spot) { d.spot.takenBy = null; d.spot = null; }
@@ -1274,6 +1305,12 @@ function arrive(d, t) {
     d.spot = d.goal;
     d.mode = d.goal.anim === 'sit' ? 'sofa' : 'hang';
     d.until = t + 8000 + Math.random() * 12000;
+    if (d.goal.errand) {
+      // entrega la tarea: una hoja que vuela hacia el compañero
+      d.until = t + 2400;
+      const o = display.get(d.goal.visitOf);
+      if (o) for (let k = 0; k < 2; k++) emitAt(headWorld(o), '📋', null, { vy: 0.0006, max: 1600 });
+    }
   }
   d.goal = null;
   d.hurry = false;
@@ -1391,6 +1428,10 @@ function headWorld(d) {
 
 // Qué pone el bocadillo: lo que dice main.js, o su actividad si está paseando.
 function activityLabel(d) {
+  if (d.onErrand) {
+    if (d.mode === 'walk') return ['🧭', d.goal === 'seat' ? 'vuelvo a mi mesa' : 'repartiendo tareas'];
+    if (d.spot && d.spot.errand) { const [em, ...rest] = d.spot.label.split(' '); return [em, rest.join(' ')]; }
+  }
   if (d.busy || d.state !== 'idle') {
     if (d.mode === 'walk' && d.goal === 'seat' && d.hurry) return ['🏃', 'vuelvo a mi mesa'];
     return [d.emoji || '', d.label || ''];
@@ -1862,7 +1903,7 @@ window.PixelOffice = Object.assign(window.PixelOffice || {}, {
     const p = toScreen(2.55, y, 0.06);
     return { x: r.left + p.x, y: r.top + p.y };
   },
-  state(id) { const d = display.get(id); return d ? { mode: d.mode, x: +d.x.toFixed(2), z: +d.z.toFixed(2), spot: d.spot && d.spot.id } : null; },
+  state(id) { const d = display.get(id); return d ? { mode: d.mode, x: +d.x.toFixed(2), z: +d.z.toFixed(2), spot: d.spot && d.spot.id, goal: d.goal && (d.goal.id || d.goal), errands: d.onErrand ? d.errands.slice() : null } : null; },
 });
 
 // ---- Bucle ---------------------------------------------------------------------------

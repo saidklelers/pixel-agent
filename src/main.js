@@ -7,6 +7,8 @@ const os = require('os');
 const { TEAM, VOICES, systemPromptFor, trainingPrompt, extractKnowledge, validateCustom, effectiveTeam } = require('./team');
 const { synthesize } = require('./tts');
 const { createBoard } = require('./board');
+const { extractDocument } = require('./docs');
+const { createPlans, taskPrompt, reportPrompt } = require('./plans');
 
 const SNAPSHOT_MS = 700; // cada cuanto mandamos el estado del equipo al render
 
@@ -48,6 +50,8 @@ function trimText(s, max) {
 
 function labelForTool(tu, fallback) {
   const i = tu.input || {};
+  if (tu.name === 'mcp__equipo__repartir_tareas') return 'repartiendo el trabajo';
+  if (tu.name === 'mcp__equipo__estado_equipo') return 'mirando cómo va el equipo';
   if (i.file_path) return fallback + ': ' + path.basename(String(i.file_path));
   if (i.pattern) return fallback + ': "' + trimText(i.pattern, 18) + '"';
   if (i.query) return fallback + ': ' + trimText(i.query, 24);
@@ -188,7 +192,7 @@ function publicMember(m) {
   const l = live.get(m.id);
   return {
     id: m.id, name: m.name, from: m.from, role: m.role, emoji: m.emoji, aliases: m.aliases, look: m.look,
-    voice: m.voice, prompt: m.prompt, customized: m.customized,
+    voice: m.voice, prompt: m.prompt, customized: m.customized, leader: !!m.leader,
     skills: rec.skills.map((k) => ({ topic: k.topic, status: k.status || (k.notes ? 'aprendido' : 'pendiente') })),
     running: !!l.q, busy: l.busy,
   };
@@ -214,7 +218,7 @@ function handleSdkMessage(id, m) {
       for (const b of content) {
         if (b.type === 'text' && b.text) texts.push(b.text);
         else if (b.type === 'tool_use') {
-          const st = TOOL_STATE[b.name] || 'working';
+          const st = TOOL_STATE[b.name] || (String(b.name).startsWith('mcp__equipo__') ? 'delegating' : 'working');
           const label = labelForTool({ name: b.name, input: b.input }, meta(st).label);
           const step = board.tool(id, b.id, b.name, b.input);
           // los comandos de tests/lint/build: está validando
@@ -251,7 +255,7 @@ function handleSdkMessage(id, m) {
     }
   } else if (m.type === 'result') {
     const cost = turnCost(id, m);
-    const { next } = board.finish(id, {
+    const { done, next } = board.finish(id, {
       ok: m.subtype === 'success' && !m.is_error, cost, turns: m.num_turns, durationMs: m.duration_ms,
       text: m.result || (Array.isArray(m.errors) ? m.errors.join('\n') : ''),
     });
@@ -260,6 +264,7 @@ function handleSdkMessage(id, m) {
     if (next) setState(id, 'prompt', null, next.text);
     else setState(id, 'idle', 'disponible');
     if (l && l.training) finishTraining(id, m.result || '');
+    if (done) onTaskEnded(done);
     sendAgentEvent({ id, kind: 'result', subtype: m.subtype, cost, text: m.result, busy: !!(l && l.busy) });
     // cambios de personalización pendientes: se aplican al quedar libre
     if (l && l.restartAfter && !l.busy && !l.training) { l.restartAfter = false; stopMember(id); }
@@ -303,6 +308,8 @@ async function ensureRunning(id) {
     systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(member, rec.skills, members) },
   };
   if (rec.sessions[cwd]) options.resume = rec.sessions[cwd];
+  // el líder (JARVIS) tiene las herramientas para repartir el trabajo
+  if (member.leader) options.mcpServers = { equipo: await teamTools(id) };
   const q = query({ prompt: input.iterable, options });
   Object.assign(l, { q, input, abort, cwd, costSeen: null, restartAfter: false });
   sendAgentEvent({ id, kind: 'spawned', cwd, resumed: !!options.resume });
@@ -321,8 +328,10 @@ async function ensureRunning(id) {
       if (!abort.signal.aborted) sendAgentEvent({ id, kind: 'error', auth, text: auth ? msg + ' — ' + AUTH_HELP : msg });
     } finally {
       if (l.q === q) {
-        board.closeAll(id, 'La sesión se cerró antes de terminar.');
+        const closed = board.closeAll(id, 'La sesión se cerró antes de terminar.');
         boardChanged();
+        // (en el siguiente tick: el estado del miembro ya estará limpio)
+        if (closed.length) setImmediate(() => closed.forEach(onTaskEnded));
         Object.assign(l, { q: null, input: null, abort: null, busy: false });
         if (l.training) { l.training = null; markTraining(id, 'pendiente'); }
         setState(id, 'idle', 'disponible');
@@ -332,7 +341,8 @@ async function ensureRunning(id) {
   })();
 }
 
-async function sendToMember(id, text, kind) {
+// meta: { display (lo que se ve en el tablero), plan, from, docs }
+async function sendToMember(id, text, kind, meta) {
   try {
     await ensureRunning(id);
   } catch (e) {
@@ -342,12 +352,14 @@ async function sendToMember(id, text, kind) {
   }
   const l = live.get(id);
   const wasBusy = board.busy(id);
-  const task = board.add(id, kind === 'capacitacion' ? `🎓 Capacitarse en «${l.trainingTopic || ''}»` : text, { kind: kind || 'orden' });
+  const mt = meta || {};
+  const shown = kind === 'capacitacion' ? `🎓 Capacitarse en «${l.trainingTopic || ''}»` : mt.display || text;
+  const task = board.add(id, shown, { kind: kind || 'orden', plan: mt.plan, from: mt.from, docs: mt.docs });
   boardChanged();
   l.busy = true;
   if (!wasBusy) setState(id, 'prompt', null, text);
   l.input.push(userMsg(text));
-  sendAgentEvent({ id, kind: 'user', text, queued: wasBusy });
+  sendAgentEvent({ id, kind: 'user', text: shown, queued: wasBusy, from: mt.from || null, plan: mt.plan || null, task: task.id });
   return { ok: true, task: task.id, queued: wasBusy };
 }
 
@@ -461,7 +473,7 @@ function pushSnapshot() {
 }
 
 ipcMain.handle('team:list', () => ({ cwd: store.cwd, members: members.map(publicMember), voices: VOICES }));
-ipcMain.handle('team:send', (_e, { id, text }) => sendToMember(id, text));
+ipcMain.handle('team:send', (_e, { id, text, docs, delegate } = {}) => sendWithDocs(id, text, docs, delegate));
 ipcMain.handle('team:interrupt', (_e, { id }) => interruptMember(id));
 ipcMain.handle('team:reset', (_e, { id }) => resetMember(id));
 ipcMain.handle('team:train', (_e, { id, topic }) => trainMember(id, topic));
@@ -470,6 +482,188 @@ ipcMain.handle('team:cwd', (_e, { cwd }) => setCwd(cwd));
 ipcMain.handle('team:customize', (_e, { id, custom } = {}) => customizeMember(id, custom));
 ipcMain.handle('board:get', () => board.snapshot());
 ipcMain.handle('board:clear', (_e, { id } = {}) => { board.clearDone(id || null); boardChanged(); return { ok: true }; });
+
+// ---- Documentos adjuntos (requerimientos) ------------------------------------
+// El render manda los bytes del archivo; aquí se saca el texto (docs.js) y se
+// guardan original y texto en la carpeta de datos, para que el equipo pueda
+// volver a consultarlos con su herramienta de lectura.
+
+const attachments = new Map(); // id -> { id, name, kind, pages, chars, path, textPath, text, image, scanned }
+const DOCS_DIR = () => path.join(app.getPath('userData'), 'requerimientos');
+const INLINE_MAX = 40000; // caracteres del documento que van dentro del mensaje
+
+async function attachDocument(name, bytes) {
+  const clean = path.basename(String(name || 'documento')).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 120) || 'documento';
+  try {
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    const out = await extractDocument(clean, data);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    fs.mkdirSync(DOCS_DIR(), { recursive: true });
+    const file = path.join(DOCS_DIR(), `${stamp}-${clean}`);
+    fs.writeFileSync(file, data);
+    let textPath = null;
+    if (out.text) { textPath = file + '.txt'; fs.writeFileSync(textPath, out.text, 'utf8'); }
+    const id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const doc = { id, name: clean, kind: out.kind, pages: out.pages || null, chars: out.text.length, path: file, textPath, text: out.text, image: !!out.image, scanned: !!out.scanned };
+    attachments.set(id, doc);
+    console.log(`[docs] adjunto «${clean}»: ${out.kind}, ${out.text.length} caracteres`);
+    return { ok: true, doc: publicDoc(doc) };
+  } catch (e) {
+    return { ok: false, error: `No se pudo leer «${clean}»: ${e && e.message ? e.message : e}` };
+  }
+}
+function publicDoc(d) {
+  return { id: d.id, name: d.name, kind: d.kind, pages: d.pages, chars: d.chars, image: d.image, scanned: d.scanned, preview: d.text.slice(0, 280) };
+}
+
+// Mensaje con los documentos: texto dentro (hasta INLINE_MAX) y rutas para consultarlos.
+function composeWithDocs(text, docs, delegate, member) {
+  let s = String(text || '').trim();
+  let budget = INLINE_MAX;
+  for (const d of docs) {
+    s += `\n\n📎 Documento adjunto: «${d.name}» (${d.kind}${d.pages ? `, ${d.pages} páginas` : ''}).`;
+    if (d.image) { s += ` Es una imagen: ábrela con la herramienta Read en ${d.path} para verla.`; continue; }
+    if (d.scanned) { s += ` Es un PDF escaneado, sin texto: ábrelo con la herramienta Read en ${d.path} para leerlo.`; continue; }
+    s += ` Texto completo en ${d.textPath} (original: ${d.path}).`;
+    if (budget > 500) {
+      const part = d.text.slice(0, budget);
+      budget -= part.length;
+      s += `\n<documento nombre="${d.name.replace(/"/g, "'")}">\n${part}${part.length < d.text.length ? '\n[… el documento sigue: léelo completo en el archivo de texto]' : ''}\n</documento>`;
+    }
+  }
+  if (delegate && member && member.leader) {
+    s += '\n\nEs un requerimiento para el equipo: analízalo y repártelo con repartir_tareas según la especialidad de cada uno ' +
+      '(con dependencias si hacen falta). Después resume en pocas líneas el reparto para el usuario.';
+  }
+  return s;
+}
+
+async function sendWithDocs(id, text, docIds, delegate) {
+  const docs = (Array.isArray(docIds) ? docIds : []).map((d) => attachments.get(d)).filter(Boolean);
+  if (!docs.length) return sendToMember(id, text);
+  const member = memberOf(id);
+  const t = String(text || '').trim();
+  const display = (t || (delegate && member && member.leader ? 'Reparte este requerimiento' : 'Revisa este documento')) + ` · 📎 ${docs.map((d) => d.name).join(', ')}`;
+  return sendToMember(id, composeWithDocs(t || (delegate ? 'Te paso un requerimiento.' : 'Te paso un documento.'), docs, delegate, member), 'orden', {
+    display, docs: docs.map((d) => ({ name: d.name, path: d.path, textPath: d.textPath })),
+  });
+}
+
+ipcMain.handle('docs:attach', (_e, { name, bytes } = {}) => attachDocument(name, bytes));
+
+// ---- Reparto del trabajo (planes de JARVIS) -------------------------------------
+
+const plans = createPlans();
+
+function leaderOf() { return members.find((m) => m.leader) || members[0]; }
+
+// Herramientas del líder: un servidor MCP dentro de la app (Agent SDK).
+async function teamTools(leaderId) {
+  const { createSdkMcpServer, tool } = await getSDK();
+  const { z } = require('zod');
+  const always = { alwaysLoad: true };
+  return createSdkMcpServer({
+    name: 'equipo',
+    version: '1.0.0',
+    tools: [
+      tool('repartir_tareas',
+        'Reparte el trabajo entre los miembros del equipo. Crea un plan con tareas concretas, cada una para un miembro ' +
+        '(por su nombre), con dependencias opcionales entre ellas (ids de otras tareas que deben terminar antes). ' +
+        'Las tareas sin dependencias empiezan a la vez. Cuando todas terminen recibirás un INFORME DEL PLAN.',
+        {
+          titulo: z.string().describe('Título corto del plan'),
+          resumen: z.string().optional().describe('Objetivo del plan en una o dos frases'),
+          tareas: z.array(z.object({
+            id: z.string().optional().describe('Identificador corto, p. ej. "api" o "t1"'),
+            miembro: z.string().describe('Nombre del miembro que la hará'),
+            tarea: z.string().describe('Qué tiene que hacer, dónde y cuándo está terminada'),
+            depende_de: z.array(z.string()).optional().describe('ids de las tareas que deben terminar antes'),
+          })).min(1),
+        },
+        async (args) => startPlan(leaderId, args), always),
+      tool('estado_equipo', 'Quién está libre, qué hace cada uno ahora y cuántas tareas tiene en cola.', {},
+        async () => ({ content: [{ type: 'text', text: teamStatusText() }] }), always),
+    ],
+  });
+}
+
+function teamStatusText() {
+  return members.map((m) => {
+    const cur = board.current(m.id);
+    const queued = board.tasksOf(m.id).filter((t) => t.status === 'pendiente').length;
+    return `- ${m.name} (${m.role}): ${cur ? `trabajando en «${cur.text.split('\n')[0].slice(0, 120)}»` : 'libre'}${queued ? `, ${queued} en cola` : ''}`;
+  }).join('\n');
+}
+
+function startPlan(leaderId, args) {
+  const cur = board.current(leaderId);
+  const parent = cur && cur.plan ? plans.get(cur.plan.id) : null;
+  const depth = parent ? parent.depth + (cur.kind === 'informe' ? 1 : 0) : 0;
+  const doc = (cur && cur.docs && cur.docs[0]) || (parent && parent.doc) || null;
+  const r = plans.create(args, members, { depth, doc, parent: parent ? parent.id : null });
+  if (!r.ok) return { content: [{ type: 'text', text: 'No se ha creado el plan: ' + r.error }], isError: true };
+  const plan = r.plan;
+  plan.leader = leaderId;
+  const now0 = plans.ready(plan).map((t) => t.ref);
+  dispatchReady(plan);
+  planChanged(plan, true);
+  const nameOf = (id) => (memberOf(id) || {}).name || id;
+  const waiting = plan.tasks.filter((t) => t.status === 'espera');
+  return {
+    content: [{
+      type: 'text',
+      text: `Plan «${plan.title}» en marcha (${plan.tasks.length} tareas). ` +
+        `Empiezan ya: ${plan.tasks.filter((t) => now0.includes(t.ref)).map((t) => `${t.ref}→${nameOf(t.member)}`).join(', ') || 'ninguna'}. ` +
+        (waiting.length ? `Esperan a sus dependencias: ${waiting.map((t) => `${t.ref}→${nameOf(t.member)}`).join(', ')}. ` : '') +
+        'Recibirás un INFORME DEL PLAN cuando terminen. No hagas tú estas tareas: termina ahora tu respuesta con un resumen breve del reparto para el usuario.',
+    }],
+  };
+}
+
+// Envía las tareas del plan que ya pueden empezar.
+function dispatchReady(plan) {
+  const leader = memberOf(plan.leader) || leaderOf();
+  for (const t of plans.ready(plan)) {
+    plans.markSent(plan, t.ref, null);
+    const display = t.text.split('\n')[0].slice(0, 200);
+    sendToMember(t.member, taskPrompt(plan, t, members, leader.name), 'delegada', {
+      display, plan: { id: plan.id, title: plan.title, ref: t.ref }, from: plan.leader,
+    }).then((res) => {
+      if (res && res.ok) { t.boardTask = res.task; return; }
+      t.boardTask = 'x' + plan.id + t.ref;
+      onPlanTask(plans.taskEnded(t.boardTask, 'error', (res && res.error) || 'no se pudo enviar'));
+    });
+  }
+}
+
+// Una tarea del tablero ha terminado: si era de un plan, el plan avanza.
+function onTaskEnded(t) {
+  if (!t || !t.plan || t.kind === 'informe') return;
+  onPlanTask(plans.taskEnded(t.id, t.status, t.result));
+}
+function onPlanTask(r) {
+  if (!r) return;
+  const { plan, finished } = r;
+  if (plan.status === 'en marcha') dispatchReady(plan);
+  planChanged(plan);
+  if (finished) {
+    const leader = memberOf(plan.leader) || leaderOf();
+    sendToMember(leader.id, reportPrompt(plan, members), 'informe', {
+      display: `📨 Informe del plan «${plan.title}»`, plan: { id: plan.id, title: plan.title },
+    }).then((res) => { if (res && res.ok) plan.reportTask = res.task; });
+  }
+}
+
+function planChanged(plan, created) {
+  sendAgentEvent({ id: plan.leader || leaderOf().id, kind: 'plan', created: !!created, plan });
+}
+
+ipcMain.handle('plan:list', () => plans.snapshot());
+ipcMain.handle('plan:cancel', (_e, { id } = {}) => {
+  const plan = plans.cancel(id);
+  if (plan) planChanged(plan);
+  return { ok: !!plan };
+});
 
 // Personalizar a un miembro (custom = null lo devuelve a su versión original).
 function customizeMember(id, custom) {

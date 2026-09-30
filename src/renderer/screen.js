@@ -277,7 +277,7 @@
     const bar = h('div', 'scr-bar');
     const liveTask = t && t.status === 'en curso';
     bar.appendChild(h('span', 'scr-live ' + (liveMode && liveTask ? 'on' : ''), liveMode && liveTask ? '● EN DIRECTO' : liveMode ? '■ ÚLTIMO' : '⏸ PASO ' + (view.step + 1)));
-    bar.appendChild(h('span', 'scr-bar-title', t ? t.text.split('\n')[0] : `${m.name} · ${m.role}`));
+    bar.appendChild(h('span', 'scr-bar-title', t ? (t.plan && t.plan.title ? `🧭 ${t.plan.title} · ` : '') + t.text.split('\n')[0] : `${m.name} · ${m.role}`));
     if (!liveMode) {
       const back = h('button', 'mini', '▶ Seguir en directo');
       back.addEventListener('click', () => { view.step = null; render(true); });
@@ -354,7 +354,7 @@
     for (const x of sorted.slice(0, 40)) {
       const row = h('button', 'scr-task ' + x.status.replace(' ', '-') + (t && x.id === t.id ? ' sel' : ''));
       row.appendChild(h('span', 'scr-task-st', STATUS[x.status].icon));
-      const txt = h('span', 'scr-task-text', x.text.split('\n')[0]);
+      const txt = h('span', 'scr-task-text', (x.from && x.from !== x.member ? '🧭 ' : x.kind === 'informe' ? '📨 ' : '') + x.text.split('\n')[0]);
       row.appendChild(txt);
       row.appendChild(h('span', 'scr-task-meta', x.status === 'en curso' ? 'ahora' : x.status === 'pendiente' ? 'en cola' : `${hhmm(x.endedAt)} · ${money(x.cost)}`));
       row.title = `${STATUS[x.status].label} — ${x.text}`;
@@ -457,6 +457,7 @@
         const ch = h('div', 'scr-card-head');
         if (m) ch.appendChild(PT.avatar(m));
         ch.appendChild(h('b', null, m ? m.name : x.member));
+        if (x.from && x.from !== x.member) ch.appendChild(h('span', 'scr-from', `🧭 de ${(memberOf(x.from) || {}).name || x.from}`));
         if (DONE.has(x.status)) ch.appendChild(h('span', 'scr-card-st', STATUS[x.status].icon));
         card.appendChild(ch);
         card.appendChild(h('div', 'scr-card-text', x.text.split('\n')[0]));

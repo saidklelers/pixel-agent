@@ -54,7 +54,9 @@
               <button id="selNone" class="mini" title="Hablar solo con el seleccionado">Uno</button>
             </span>
           </div>
+          <div id="attachList" class="attach-list" hidden></div>
           <div class="input-shell">
+            <button id="attachBtn" class="attach" type="button" title="Adjuntar un documento (PDF, Word, Excel, PowerPoint, TXT…). También puedes arrastrarlo aquí.">📎</button>
             <button id="micBtn" class="mic" data-state="idle" title="Mantén pulsado para hablar (o Ctrl+Espacio). Un clic: habla y se envía solo al callarte.">
               <span class="mic-ring"></span>
               <span class="mic-icon">🎤</span>
@@ -111,6 +113,7 @@
             <li><b>«Reinicia a TARS»</b><span>Olvida la conversación (pide confirmación).</span></li>
             <li><b>«EDITH» · «Silencio»</b><span>Elegirla como destino · callar las voces.</span></li>
             <li><b>Ratón</b><span>Clic en un avatar o en un personaje de la oficina para hablarle; Ctrl+clic para marcar varios.</span></li>
+            <li><b>📎 Requerimientos</b><span>Adjunta (o arrastra) un PDF, Word, Excel, TXT… y mándaselo a JARVIS: lo reparte en tareas para el equipo, en orden, y lo revisa cuando terminan.</span></li>
             <li><b>🖥️ Su pantalla</b><span>Clic en la pantalla holográfica de su mesa (o 🖥️ en su ficha): ves en directo qué edita, qué ejecuta y cómo valida.</span></li>
             <li><b>📋 Tablero</b><span>Clic en el tablero de la pared (o 📋): las 5 pantallas, las tareas de todos y lo gastado.</span></li>
           </ul>
@@ -123,6 +126,7 @@
     <script src="chat.js"></script>
     <script src="screen.js"></script>
     <script src="team-editor.js"></script>
+    <script src="attach.js"></script>
     <!-- Oficina 3D (Three.js). Si no hay WebGL, carga sola la versión 2.5D (renderer.js).
          Si cambias el import map, actualiza su hash sha256 en la Content-Security-Policy de arriba. -->
     <script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.min.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script>

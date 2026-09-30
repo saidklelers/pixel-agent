@@ -2110,3 +2110,301 @@ button.mini:hover {
   padding: 6px 14px;
   font-size: 12px;
 }
+
+/* ==========================================================================
+   Requerimientos: adjuntos (attach.js) y planes de reparto (chat.js)
+   ========================================================================== */
+
+.attach {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s, background 0.15s;
+}
+.attach:hover {
+  opacity: 1;
+  background: rgba(41, 240, 255, 0.1);
+}
+.attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.attach-list[hidden] {
+  display: none;
+}
+.attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 5px 6px 5px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(41, 240, 255, 0.35);
+  background: rgba(41, 240, 255, 0.06);
+  font-size: 11.5px;
+}
+.attach-chip.leyendo {
+  border-style: dashed;
+  animation: breathe 1.4s ease-in-out infinite;
+}
+.attach-chip.error {
+  border-color: rgba(255, 95, 122, 0.5);
+  background: rgba(255, 95, 122, 0.07);
+}
+.attach-ic {
+  font-size: 16px;
+}
+.attach-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.attach-txt b {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-txt span {
+  font-size: 10.5px;
+  color: var(--text-mute);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-chip.error .attach-txt span {
+  color: #ffb4c2;
+  white-space: normal;
+}
+.attach-x {
+  border: none;
+  background: transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+.attach-x:hover {
+  color: var(--text);
+}
+.attach-delegate {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 225, 77, 0.45);
+  background: rgba(255, 225, 77, 0.07);
+  color: #fff1a8;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.attach-delegate input {
+  accent-color: var(--yellow);
+}
+.drop-zone {
+  position: absolute;
+  inset: 8px;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  border: 2px dashed var(--cyan);
+  background: rgba(8, 7, 18, 0.9);
+  box-shadow: inset 0 0 40px rgba(41, 240, 255, 0.15);
+  text-align: center;
+  pointer-events: none;
+}
+.drop-zone[hidden] {
+  display: none;
+}
+.drop-zone div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 80%;
+}
+.drop-zone b {
+  font-size: 16px;
+  color: var(--cyan);
+}
+.drop-zone span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.msg-docs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 4px;
+}
+.msg-doc {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(41, 240, 255, 0.3);
+  background: rgba(41, 240, 255, 0.06);
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.msg-doc.delegate {
+  border-color: rgba(255, 225, 77, 0.4);
+  color: #fff1a8;
+}
+.delegated {
+  --who: var(--cyan);
+  margin: 6px 0 10px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--who) 40%, transparent);
+  border-left: 3px solid var(--who);
+  background: color-mix(in srgb, var(--who) 7%, transparent);
+}
+.delegated-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.delegated-head b {
+  color: var(--who);
+}
+.delegated-head .time {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-mute);
+}
+.delegated-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.plan-card {
+  margin: 8px 0 12px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 225, 77, 0.4);
+  background: linear-gradient(160deg, rgba(255, 225, 77, 0.07), rgba(155, 92, 255, 0.05));
+  box-shadow: 0 0 18px rgba(255, 225, 77, 0.08);
+}
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.plan-head b {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #fff1a8;
+}
+.plan-st {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-dim);
+}
+.plan-st.terminado { background: rgba(57, 255, 158, 0.14); color: var(--green); }
+.plan-st.con-problemas { background: rgba(255, 95, 122, 0.14); color: #ff9aac; }
+.plan-sum {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.plan-prog {
+  height: 4px;
+  margin: 9px 0;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+.plan-prog i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--yellow), var(--green));
+}
+.plan-tasks {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.plan-tasks li {
+  --who: var(--cyan);
+  display: flex;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--who);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+.plan-tasks li:hover {
+  border-color: var(--line);
+}
+.plan-tasks li.hecho { opacity: 0.75; }
+.plan-tasks li.fallida,
+.plan-tasks li.bloqueada { border-left-color: var(--danger); }
+.plan-task {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.plan-task > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.plan-task b {
+  color: var(--who);
+}
+.plan-task-st {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.plan-tasks li.enviada .plan-task-st { color: var(--yellow); }
+.plan-tasks li.hecho .plan-task-st { color: var(--green); }
+.plan-tasks li.fallida .plan-task-st,
+.plan-tasks li.bloqueada .plan-task-st { color: #ff9aac; }
+.plan-task-text {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.scr-from {
+  color: #fff1a8;
+}

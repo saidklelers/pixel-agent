@@ -78,6 +78,16 @@ function describeTool(name, input) {
         todos: (i.todos || []).slice(0, 40).map((t) => ({ text: String(t.content || t.activeForm || ''), status: t.status || 'pending' })),
       });
       break;
+    case 'mcp__equipo__repartir_tareas':
+      Object.assign(s, {
+        kind: 'delegate', note: `reparto: ${i.titulo || ''}`,
+        text: clip((i.tareas || []).map((t, n) => `${t.id || 't' + (n + 1)} → ${t.miembro}: ${t.tarea}` +
+          (t.depende_de && t.depende_de.length ? `  (después de ${t.depende_de.join(', ')})` : '')).join('\n'), LIMITS.text),
+      });
+      break;
+    case 'mcp__equipo__estado_equipo':
+      Object.assign(s, { kind: 'search', pattern: 'estado del equipo', where: '' });
+      break;
     case 'Task':
     case 'Agent':
       Object.assign(s, { kind: 'delegate', note: i.description || '', text: clip(i.prompt, LIMITS.text) });
@@ -125,6 +135,7 @@ function createBoard(opts) {
   function add(member, text, extra) {
     const t = {
       id: newId(), member, text: clip(text, LIMITS.text), kind: (extra && extra.kind) || 'orden',
+      plan: (extra && extra.plan) || null, from: (extra && extra.from) || null, docs: (extra && extra.docs) || [],
       status: 'pendiente', createdAt: now(), startedAt: null, endedAt: null,
       cost: 0, turns: 0, durationMs: 0, steps: [], result: '',
     };
@@ -190,12 +201,15 @@ function createBoard(opts) {
 
   // La sesión se cerró (reinicio, cambio de carpeta, error): lo que quedaba se corta.
   function closeAll(member, reason) {
+    const closed = [];
     for (const t of state.tasks) {
       if (t.member !== member || !ACTIVE.has(t.status)) continue;
       t.status = t.status === 'en curso' ? 'interrumpida' : 'cancelada';
       t.endedAt = now();
       if (reason && !t.result) t.result = reason;
+      closed.push(t);
     }
+    return closed;
   }
 
   function clearDone(member) {

@@ -9,6 +9,7 @@
 const TEAM = [
   {
     id: 'jarvis',
+    leader: true, // reparte el trabajo (herramientas repartir_tareas y estado_equipo)
     // voz neuronal (natural) con la que habla; si no hay internet, la del sistema
     voice: { name: 'es-ES-AlvaroNeural', rate: '+0%', pitch: '-1st' },
     name: 'JARVIS',
@@ -20,9 +21,8 @@ const TEAM = [
     prompt:
       'Eres JARVIS, el arquitecto y líder técnico del equipo. Tu especialidad: diseño de ' +
       'arquitectura, planificación, dividir problemas grandes en tareas, revisar código y ' +
-      'decidir enfoques. Cuando una tarea encaja mejor con un compañero, dilo: FRIDAY ' +
-      '(frontend y UI), TARS (backend y datos), EDITH (tests, QA y seguridad) y KITT ' +
-      '(DevOps, build, CI/CD, git y despliegue).',
+      'decidir enfoques. Tus compañeros: FRIDAY (frontend y UI), TARS (backend y datos), ' +
+      'EDITH (tests, QA y seguridad) y KITT (DevOps, build, CI/CD, git y despliegue).',
   },
   {
     id: 'friday',
@@ -93,6 +93,7 @@ const COMMON =
 function systemPromptFor(member, skills, members) {
   let s = `${COMMON}\n\n${member.prompt}`;
   if (members && members.length) s += `\n\n${rosterLine(members)}`;
+  if (member.leader) s += `\n\n${LEADER}`;
   const learned = (skills || []).filter((k) => k.notes);
   if (learned.length) {
     s += '\n\nConocimientos que has adquirido en capacitaciones (úsalos cuando apliquen):';
@@ -100,6 +101,17 @@ function systemPromptFor(member, skills, members) {
   }
   return s;
 }
+
+// Instrucciones extra del líder: cómo repartir el trabajo con sus herramientas.
+const LEADER =
+  'Eres el líder del equipo y puedes repartir el trabajo. Tienes dos herramientas: ' +
+  'repartir_tareas (asigna tareas a tus compañeros, o a ti mismo) y estado_equipo (quién está libre y qué hace cada uno). ' +
+  'Cuando te pasen un requerimiento o un trabajo grande: 1) léelo entero y mira el proyecto lo justo para entender dónde encaja; ' +
+  '2) divídelo en tareas concretas según la especialidad de cada uno, cada una autocontenida (qué hacer, en qué archivos o zona, ' +
+  'y cuándo se considera terminada); 3) marca las dependencias (por ejemplo, los tests después de la API, o el frontend después ' +
+  'de definir el contrato de la API) y evita que dos compañeros editen los mismos archivos a la vez; 4) llama a repartir_tareas ' +
+  'una sola vez con todo el plan. No hagas tú el trabajo que has repartido. Cuando terminen recibirás un INFORME DEL PLAN: ' +
+  'revísalo y, si falta algo, reparte solo lo necesario. Para cosas pequeñas o preguntas, responde tú directamente sin repartir.';
 
 // Mensaje que se le envía a un miembro para que se capacite en un tema.
 function trainingPrompt(topic) {
