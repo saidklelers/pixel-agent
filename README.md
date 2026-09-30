@@ -1,6 +1,6 @@
 # Pixel Office
 
-App de escritorio con una oficina en **3D** (estilo acogedor, vista en diagonal) donde
+App de escritorio con una oficina **ciberpunk en 3D** donde
 trabaja tu equipo de agentes de **Claude Code**, animados según lo que están
 haciendo de verdad (leyendo, escribiendo código, ejecutando comandos, buscando
 en la web…).
@@ -23,20 +23,27 @@ npm start
 El equipo entra por la puerta y cada uno va a su mesa. Necesitas tener Claude
 Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
 
-## La oficina (3D)
-- Oficina en **3D real** (Three.js): puerta de entrada, ventanas, pizarra,
-  reloj real, estantería, zona de café, sofá, mesa holográfica en el centro y
-  un gato que pasea (haz clic en él 🐱).
-- El equipo son **chibis en 3D**, cada uno con su estilo: JARVIS con traje y
-  auricular, FRIDAY con diadema, TARS es un robot con cara de pantalla, EDITH
-  con gafas y KITT con el visor y su escáner rojo. Entran por la puerta, se
-  sientan en su mesa, teclean, parpadean y mueven la boca al hablar.
-- El cielo y la luz siguen la hora real: de día entra el sol con sombras; de
-  noche se encienden los plafones, los flexos y las pantallas.
-- **Arrastra** para girar la cámara, **rueda** para acercar, **doble clic**
-  para volver a la vista inicial.
-- **Clic en un personaje** (o en su mesa/bocadillo): pasa a ser el destino.
-  **Ctrl+clic** lo marca para difusión.
+## La oficina (3D ciberpunk)
+- Oficina en **3D real** (Three.js) con estilo **ciberpunk**:
+  - suelo metálico con rejilla de neón;
+  - tiras de neón en paredes y suelo;
+  - letrero «PIXEL OFFICE» y reloj LED;
+  - tablero holográfico con gráficas y rack de servidores con luces;
+  - máquina expendedora, depósito de refrigerante y sofá con luz de suelo;
+  - mesa holográfica en el centro;
+  - ventanas a una ciudad con carteles de neón y coches voladores;
+  - resplandor (*bloom*) en todo lo que brilla.
+- El equipo son **chibis en 3D**, cada uno con su estilo:
+  - JARVIS con traje y auricular;
+  - FRIDAY con diadema;
+  - TARS, un robot con cara de pantalla;
+  - EDITH con gafas;
+  - KITT con el visor y su escáner rojo.
+- **Tienen vida propia**: cuando no tienen trabajo, al rato se levantan y pasean por la oficina. Van a por café o agua, a la máquina, al sofá, a mirar la ciudad por la ventana, a consultar el holograma o a ver qué hace un compañero que está trabajando. El bocadillo dice qué están haciendo. En cuanto les llega una orden, **vuelven corriendo a su mesa**. Se mueven por los pasillos, sin atravesar muebles.
+- Cada mesa tiene una pantalla holográfica que muestra código cuando ese miembro trabaja.
+- El cielo y la luz siguen la hora real: de día, sol anaranjado de ciudad; de noche mandan los neones.
+- **Arrastra** para girar la cámara, **rueda** para acercar y **doble clic** para volver a la vista inicial.
+- **Clic en un personaje** (aunque esté paseando), en su mesa o en su bocadillo: pasa a ser el destino. **Ctrl+clic** lo marca para difusión.
 - Si el PC no tiene WebGL, se usa automáticamente la versión 2.5D.
 
 ## Tu equipo: 5 IAs fijas 🤖
@@ -140,7 +147,7 @@ crea automáticamente el **acceso directo en el escritorio** y en el menú inici
   permiso del micrófono (solo audio).
 - `src/stt-worker.js` — motor de voz: Whisper local en un proceso aparte
   (`utilityProcess`) para no congelar la ventana.
-- `src/renderer/office3d.js` — la oficina 3D (Three.js) y los chibis.
+- `src/renderer/office3d.js` — la oficina 3D ciberpunk (Three.js), los chibis y sus paseos.
 - `src/renderer/renderer.js` — versión 2.5D de respaldo si no hay WebGL.
 - `src/renderer/chat.js` — Centro de mando: agentes, órdenes, micro y voces.
 - `src/renderer/voice.js` — grabación del micrófono y cola de voces.

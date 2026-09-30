@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:;" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-V0uLTyYgtynUAVrvVN5foZZ8V+p50C3H5QD86rb+dsk='; style-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:;" />
     <title>Pixel Office</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -98,7 +98,9 @@
     <script src="voice-commands.js"></script>
     <script src="voice.js"></script>
     <script src="chat.js"></script>
-    <!-- Oficina 3D (Three.js). Si no hay WebGL, carga sola la versión 2.5D (renderer.js). -->
+    <!-- Oficina 3D (Three.js). Si no hay WebGL, carga sola la versión 2.5D (renderer.js).
+         Si cambias el import map, actualiza su hash sha256 en la Content-Security-Policy de arriba. -->
+    <script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.min.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script>
     <script type="module" src="office3d.js"></script>
   </body>
 </html>

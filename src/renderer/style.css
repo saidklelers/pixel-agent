@@ -997,3 +997,102 @@ button.mini:hover {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   z-index: 3000;
 }
+
+/* ---- Estilo ciberpunk ---- */
+
+:root {
+  --bg: #07060d;
+  --panel: #0f0d1a;
+  --panel-2: #141126;
+  --panel-3: #1b1733;
+  --line: #2a2448;
+  --accent: #29f0ff;
+  --accent-2: #19c8d8;
+  --accent-ink: #031417;
+  --blue: #b36bff;
+  --magenta: #ff2bd6;
+}
+#chat {
+  background: linear-gradient(180deg, #100d1d 0%, #0a0814 100%);
+  border-left: 1px solid rgba(41, 240, 255, 0.25);
+  box-shadow: -8px 0 30px rgba(41, 240, 255, 0.06);
+}
+.chat-head {
+  background: linear-gradient(135deg, #1a1033 0%, #0e0b1c 100%);
+  border-bottom: 1px solid rgba(255, 43, 214, 0.35);
+}
+.chat-title {
+  text-shadow: 0 0 10px rgba(41, 240, 255, 0.55);
+}
+.logo {
+  background: rgba(255, 43, 214, 0.12);
+  border-color: rgba(255, 43, 214, 0.45);
+}
+.member {
+  background: rgba(27, 23, 51, 0.8);
+}
+.member.active {
+  border-color: var(--accent);
+  background: rgba(41, 240, 255, 0.08);
+  box-shadow: 0 0 12px rgba(41, 240, 255, 0.25);
+}
+.member.picked {
+  border-color: var(--magenta);
+}
+.composer-row button.primary {
+  box-shadow: 0 0 14px rgba(41, 240, 255, 0.35);
+}
+.bubble.user {
+  background: linear-gradient(135deg, #3b1d6e 0%, #26134a 100%);
+}
+.bubble.user.voice {
+  background: linear-gradient(135deg, #0f4a55 0%, #0b3540 100%);
+}
+#stageWrap {
+  background: #07060d;
+}
+.o3-header {
+  background: linear-gradient(180deg, rgba(8, 6, 16, 0.95), rgba(8, 6, 16, 0));
+}
+.o3-header b {
+  color: #fff;
+  text-shadow: 0 0 8px #ff2bd6, 0 0 18px rgba(255, 43, 214, 0.6);
+}
+.o3-pill {
+  background: rgba(41, 240, 255, 0.08);
+  border: 1px solid rgba(41, 240, 255, 0.3);
+  color: #bdf6ff;
+}
+.o3-pill.busy {
+  border-color: rgba(255, 225, 77, 0.5);
+  color: #ffe98a;
+}
+.o3-clock {
+  color: #ff7ce6;
+  text-shadow: 0 0 8px rgba(255, 43, 214, 0.8);
+}
+.o3-bubble {
+  background: rgba(10, 8, 22, 0.88);
+  color: #eafcff;
+  border-color: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent), 0 3px 10px rgba(0, 0, 0, 0.5);
+}
+.o3-bubble::after {
+  border-top-color: var(--accent);
+}
+.o3-bubble.target {
+  background: rgba(6, 30, 38, 0.92);
+}
+.o3-bubble.target::after {
+  border-top-color: var(--accent);
+}
+.o3-bubble.away {
+  opacity: 0.88;
+}
+.o3-label {
+  color: #a9b8d8;
+}
+.o3-arrow {
+  border-top-color: #29f0ff;
+  filter: drop-shadow(0 0 6px #29f0ff);
+}
