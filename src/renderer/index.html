@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-V0uLTyYgtynUAVrvVN5foZZ8V+p50C3H5QD86rb+dsk='; style-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:;" />
     <title>Pixel Office</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -10,40 +10,112 @@
     <div id="app">
       <div id="stageWrap">
         <canvas id="stage"></canvas>
+        <div id="overlay"></div>
       </div>
       <aside id="chat">
-        <div class="chat-head">
-          <span class="chat-title">🛰️ Centro de mando</span>
-          <button id="newAgent" title="Nuevo agente">＋</button>
-        </div>
-        <div id="agentList" class="agent-list"></div>
-        <div id="convo" class="convo">
-          <div class="empty-convo">
-            Lanza un agente: escribe una tarea abajo, elige la carpeta y pulsa <b>＋ Agente</b>.
-            El agente aparecerá caminando a un escritorio.
+        <div id="chatResize" class="chat-resize" title="Arrastra para cambiar el ancho del panel"></div>
+        <header class="chat-head">
+          <div class="brand">
+            <span class="logo">🛰️</span>
+            <div>
+              <div class="chat-title">Centro de mando</div>
+              <div class="chat-sub"><span id="teamStatus">Tu equipo de 5 IAs</span></div>
+            </div>
           </div>
+          <div class="head-actions">
+            <button id="handsBtn" class="icon-btn off" title="Manos libres: el micro escucha siempre y reconoce a quién le hablas por su nombre">👂</button>
+            <button id="ttsBtn" class="icon-btn" title="Leer las respuestas en voz alta">🔊</button>
+            <button id="skipBtn" class="icon-btn" title="Callar al equipo (Esc)">⏹</button>
+            <button id="settingsBtn" class="icon-btn" title="Ajustes: carpeta, micrófono y voz">⚙️</button>
+            <button id="helpBtn" class="icon-btn" title="¿Qué puedo decir?">❔</button>
+          </div>
+        </header>
+
+        <nav id="agentList" class="team-dock" aria-label="Equipo"></nav>
+        <section id="profile" class="profile-bar"></section>
+
+        <div class="convo-wrap">
+          <div id="convo" class="convo"></div>
+          <button id="toBottom" class="to-bottom" hidden title="Ir al último mensaje">↓</button>
         </div>
+
+        <div id="voiceStatus" class="voice-status" hidden>
+          <div class="vs-text"></div>
+          <div class="vs-bar"><div class="vs-fill"></div></div>
+        </div>
+
         <div class="composer">
           <div class="targets">
-            <span id="targetInfo" class="target-info">Destino: nuevo agente</span>
+            <span class="to-label">Para</span>
+            <span id="targetInfo" class="target-chips"></span>
             <span class="target-actions">
-              <button id="selAll" class="mini">Todos</button>
-              <button id="selNone" class="mini">Ninguno</button>
+              <button id="selAll" class="mini" title="Hablar a todo el equipo a la vez">Todos</button>
+              <button id="selNone" class="mini" title="Hablar solo con el seleccionado">Uno</button>
             </span>
           </div>
-          <input id="agentName" class="cwd" spellcheck="false" placeholder="Nombre del agente" />
-          <input id="cwd" class="cwd" spellcheck="false" value="C:\Proyectos" />
-          <textarea id="msg" rows="3" placeholder="Escribe una orden para el agente…"></textarea>
+          <div class="input-shell">
+            <button id="micBtn" class="mic" data-state="idle" title="Mantén pulsado para hablar (o Ctrl+Espacio). Un clic: habla y se envía solo al callarte.">
+              <span class="mic-ring"></span>
+              <span class="mic-icon">🎤</span>
+            </button>
+            <textarea id="msg" rows="1" placeholder="Escribe una orden… o habla con 🎤"></textarea>
+            <button id="sendBtn" class="send" title="Enviar (Enter)">➤</button>
+          </div>
           <div class="composer-row">
-            <button id="spawnBtn" class="primary">＋ Agente</button>
-            <button id="sendBtn">Enviar</button>
-            <button id="stopBtn" class="danger" title="Detener agente">■</button>
+            <button id="trainBtn" class="chip-btn" title="Capacitar al destino en el tema escrito en la caja">🎓 Capacitar</button>
+            <button id="stopBtn" class="chip-btn danger" title="Interrumpir al destino">■ Interrumpir</button>
+            <span class="kbd">Enter envía · Shift+Enter salto · Ctrl+Espacio habla</span>
           </div>
           <div id="hint" class="hint"></div>
         </div>
+
+        <div id="settingsDrawer" class="drawer" hidden>
+          <div class="drawer-head"><b>⚙️ Ajustes</b><button class="icon-btn drawer-close" data-close title="Cerrar (Esc)">✕</button></div>
+          <label class="setting">
+            <span class="setting-title">📁 Carpeta del proyecto</span>
+            <span class="setting-help">Donde trabaja el equipo. Cada carpeta tiene su propia conversación.</span>
+            <span class="field grow"><input id="cwd" spellcheck="false" placeholder="C:\Proyectos\mi-app" /></span>
+          </label>
+          <label id="micField" class="setting field-like" title="Micrófono con el que hablas al equipo">
+            <span class="setting-title">🎙️ Micrófono</span>
+            <span class="setting-help">Si no te oye, prueba otro: el anillo del 🎤 se mueve cuando capta tu voz.</span>
+            <span class="field grow"><select id="micSelect"><option value="">Micrófono de Windows</option></select></span>
+          </label>
+          <label class="setting">
+            <span class="setting-title">🧠 Reconocimiento de voz</span>
+            <span class="setting-help">Preciso usa Whisper small (~500 MB la 1.ª vez); Rápido usa Whisper base.</span>
+            <span class="field grow"><select id="sttQuality"><option value="precisa">Preciso</option><option value="rapida">Rápido</option></select></span>
+          </label>
+          <label class="setting">
+            <span class="setting-title">🔊 Voces del equipo</span>
+            <span class="setting-help">Naturales: voces neuronales (necesitan internet). Del sistema: las de Windows.</span>
+            <span class="field grow"><select id="ttsMode"><option value="natural">Naturales</option><option value="sistema">Del sistema</option></select></span>
+          </label>
+        </div>
+
+        <div id="helpDrawer" class="drawer" hidden>
+          <div class="drawer-head"><b>🎙️ ¿Qué puedo decir?</b><button class="icon-btn drawer-close" data-close title="Cerrar (Esc)">✕</button></div>
+          <ul class="help-list">
+            <li><b>👂 Manos libres</b><span>Sin pulsar nada: di el nombre y habla («JARVIS, planifica el login»). Unos segundos después puedes seguir sin repetirlo.</span></li>
+            <li><b>«JARVIS, planifica el login»</b><span>Habla con uno. Sin nombre, va al destino marcado arriba.</span></li>
+            <li><b>«FRIDAY y EDITH: revisad el formulario»</b><span>A varios a la vez.</span></li>
+            <li><b>«Todos, actualizad la rama»</b><span>A todo el equipo.</span></li>
+            <li><b>«KITT, capacítate en Kubernetes»</b><span>Aprende un tema y lo recuerda siempre.</span></li>
+            <li><b>«Para» · «TARS, para» · «Todos, paren»</b><span>Interrumpir.</span></li>
+            <li><b>«Reinicia a TARS»</b><span>Olvida la conversación (pide confirmación).</span></li>
+            <li><b>«EDITH» · «Silencio»</b><span>Elegirla como destino · callar las voces.</span></li>
+            <li><b>Ratón</b><span>Clic en un avatar o en un personaje de la oficina para hablarle; Ctrl+clic para marcar varios.</span></li>
+          </ul>
+          <div class="help-team">🧠 JARVIS arquitectura · 🎨 FRIDAY frontend · 🗄️ TARS backend · 🛡️ EDITH QA y seguridad · 🚀 KITT DevOps</div>
+        </div>
       </aside>
     </div>
-    <script src="renderer.js"></script>
+    <script src="voice-commands.js"></script>
+    <script src="voice.js"></script>
     <script src="chat.js"></script>
+    <!-- Oficina 3D (Three.js). Si no hay WebGL, carga sola la versión 2.5D (renderer.js).
+         Si cambias el import map, actualiza su hash sha256 en la Content-Security-Policy de arriba. -->
+    <script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.min.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script>
+    <script type="module" src="office3d.js"></script>
   </body>
 </html>
