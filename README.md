@@ -8,6 +8,7 @@ en la web…).
 Desde el **Centro de mando** (panel derecho) diriges a tu **equipo fijo de 5
 IAs** (JARVIS, FRIDAY, TARS, EDITH y KITT), cada una especializada en una parte
 del desarrollo, **escribiendo o hablando**; te contestan **en voz alta**.
+Pásale a JARVIS un **requerimiento** (PDF, Word, TXT…) y él **reparte el trabajo** en el equipo.
 
 ## Requisitos
 - Node.js 18+ (tienes v24, perfecto)
@@ -41,10 +42,12 @@ Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
   - EDITH con gafas;
   - KITT con el visor y su escáner rojo.
 - **Tienen vida propia**: cuando no tienen trabajo, al rato se levantan y pasean por la oficina. Van a por café o agua, a la máquina, al sofá, a mirar la ciudad por la ventana, a consultar el holograma o a ver qué hace un compañero que está trabajando. El bocadillo dice qué están haciendo. En cuanto les llega una orden, **vuelven corriendo a su mesa**. Se mueven por los pasillos, sin atravesar muebles.
-- Cada mesa tiene una pantalla holográfica que muestra código cuando ese miembro trabaja.
+- Cada mesa tiene una pantalla holográfica que muestra **lo que ese miembro está haciendo de verdad**: el código que escribe, el comando que ejecuta y su salida, su plan…
+- El **tablero de la pared** muestra las tareas reales del equipo: qué hace cada uno, cuántas tiene en cola, cuántas ha terminado y lo que lleva gastado.
 - El cielo y la luz siguen la hora real: de día, sol anaranjado de ciudad; de noche mandan los neones.
 - **Arrastra** para girar la cámara, **rueda** para acercar y **doble clic** para volver a la vista inicial.
 - **Clic en un personaje** (aunque esté paseando), en su mesa o en su bocadillo: pasa a ser el destino. **Ctrl+clic** lo marca para difusión.
+- **Clic en la pantalla de su mesa**: se abre su pantalla en grande (ver abajo). **Clic en el tablero de la pared**: la fila de un miembro abre su pantalla.
 - Si el PC no tiene WebGL, se usa automáticamente la versión 2.5D.
 
 ## El Centro de mando (panel derecho)
@@ -61,8 +64,60 @@ Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
   - si subes a leer, un botón ↓ te lleva al último mensaje;
   - si está vacía, sugiere órdenes típicas de cada especialista.
 - **Caja de escribir**: «Para» con chips de los destinatarios, 🎤 y ➤ dentro de la caja, y **Enter** para enviar (Shift+Enter hace un salto de línea).
-- **⚙️ Ajustes** (carpeta del proyecto, micrófono, reconocimiento de voz, tipo de voces) y **❔ Ayuda** se abren como paneles desde la cabecera.
+- **⚙️ Ajustes** (carpeta del proyecto, micrófono, reconocimiento de voz, tipo de voces, personalizar equipo) y **❔ Ayuda** se abren como paneles desde la cabecera. **📋** abre las pantallas del equipo.
+- En la ficha: **🖥️** abre su pantalla y **✎** lo personaliza.
 - Arrastra el **borde izquierdo** del panel para ensancharlo; doble clic en ese borde lo devuelve al ancho normal.
+
+## Pasarle un requerimiento a JARVIS 📎🧭
+JARVIS es el líder: le das un documento con lo que hay que hacer y él **reparte el trabajo** en el equipo.
+
+1. Pulsa **📎** en la caja de escribir (o **arrastra el archivo** a la ventana). Vale:
+   - **PDF**;
+   - **Word** (.docx), **Excel** (.xlsx) y **PowerPoint** (.pptx);
+   - **OpenDocument** (.odt, .ods, .odp) y **RTF**;
+   - **TXT**, **Markdown**, **CSV**, **JSON**, **HTML** y código;
+   - **imágenes** (mockups, capturas): JARVIS las abre y las ve.
+   El chip del adjunto dice lo que ha leído (páginas y caracteres). Los .doc/.xls antiguos hay que guardarlos antes como .docx/.xlsx.
+2. Con **JARVIS** como destino aparece **«🧭 Que JARVIS lo reparta en el equipo»** (marcado). Añade indicaciones si quieres («para el viernes») y pulsa **Enter**.
+3. JARVIS lee el requerimiento, lo divide en tareas según la especialidad de cada uno y **las asigna**:
+   - las que no dependen de nada empiezan **a la vez**;
+   - las que dependen de otras **esperan su turno** (p. ej. los tests de EDITH después de la API de TARS y del botón de FRIDAY);
+   - quien empieza una tarea recibe lo que hicieron aquellas de las que depende.
+   En la oficina lo ves ir **a la mesa de cada compañero a darle su tarea** 📋.
+4. En su conversación aparece la **tarjeta del plan**: cada tarea con su responsable y su estado (en espera, trabajando, hecha, falló, bloqueada). Clic en una tarea para ver la pantalla de quien la hace; «✕ Cancelar lo que falta» para que no se envíe lo que no ha empezado.
+5. Cuando terminan todos, JARVIS recibe el **informe del plan**, revisa el trabajo (puede ejecutar los tests) y, si falta algo, vuelve a repartir solo eso (como mucho 3 rondas). Al final te da un resumen.
+
+Cada miembro ve en su conversación la tarea que le ha asignado JARVIS («🧭 JARVIS te asigna»), y en su pantalla y en el tablero aparece «🧭 de JARVIS».
+Los documentos se guardan (original y texto) en la carpeta `requerimientos` de los datos de la app, para que el equipo pueda volver a consultarlos.
+Para cosas pequeñas o preguntas, JARVIS contesta él mismo sin repartir.
+
+## Las pantallas del equipo 🖥️
+Para ver qué está haciendo o validando cada uno. Se abren con un clic en la
+pantalla holográfica de su mesa, con 🖥️ en su ficha o con **📋** en la cabecera
+del panel (vista de todo el equipo). **Esc** las cierra.
+
+- **Su pantalla, en directo** (● EN DIRECTO):
+  - si edita un archivo, ves el cambio (líneas quitadas en rojo y añadidas en verde);
+  - si crea uno, su contenido;
+  - si ejecuta un comando, la terminal con la salida; los tests, lint y build aparecen como **🧪 Validando**, con ✓ correcto o ✗ falló;
+  - también lo que lee, lo que busca (en el proyecto o en la web) y lo que dice.
+- **Su plan**: la lista de pasos que se marca el agente, con los que ya ha hecho tachados y una barra de progreso.
+- **Sus tareas**: la que está **en curso**, las que tiene **en cola** (si le mandas otra orden mientras trabaja, espera su turno) y las **hechas**, con hora, duración y coste. Clic en una para ver cómo la hizo.
+- **Pasos de la tarea**: todo lo que ha hecho, en orden. Clic en un paso para verlo en la pantalla; «▶ Seguir en directo» vuelve a lo último.
+- **Gastado**: lo que lleva gastado cada uno (coste estimado que da Claude Code) y el total del equipo.
+- **📋 Equipo**: las 5 pantallas a la vez y el tablero de todos (**Pendiente → En curso → Hecho**).
+- Las tareas se guardan en `tareas.json` (carpeta de datos de la app). «Limpiar» quita las terminadas.
+
+## Personalizar el equipo 🎨
+En **⚙️ Ajustes › 🎨 Personalizar equipo** (o ✎ en la ficha) puedes cambiar a cada miembro:
+- **Nombre** (con él le llamas, también por voz) y **emoji**.
+- **Especialidad** y **en qué se inspira**.
+- **Instrucciones**: quién es y en qué se especializa (se le dan siempre como contexto).
+- **Colores**: el neón de su mesa, la ropa y el pelo. Su mesa y su personaje cambian al momento.
+- **Voz**: 17 voces naturales en español (España, México, Argentina, Colombia, Chile, Perú, Venezuela y EE. UU.), con tono y velocidad. **▶ Probar voz** la escuchas antes de guardar.
+- **↺ Volver al original** deshace sus cambios.
+
+Si le cambias el nombre, sus compañeros también se enteran. Conserva su conversación y lo aprendido. Si está trabajando, las nuevas instrucciones se aplican cuando termine.
 
 ## Tu equipo: 5 IAs fijas 🤖
 
@@ -149,7 +204,9 @@ Microsoft, las de «Leer en voz alta» de Edge), que suenan como una persona:
 ```bash
 npm test
 ```
-Prueban el intérprete de órdenes por voz (`src/renderer/voice-commands.js`).
+Prueban el intérprete de órdenes por voz (`src/renderer/voice-commands.js`), el
+tablero de tareas (`src/board.js`), la personalización del equipo (`src/team.js`),
+la lectura de documentos (`src/docs.js`) y los planes de reparto (`src/plans.js`).
 
 ## Crear el instalador + acceso directo en el escritorio
 ```bash
@@ -159,7 +216,10 @@ Genera en `dist/` un instalador (`Pixel Office Setup x.y.z.exe`). Al instalarlo
 crea automáticamente el **acceso directo en el escritorio** y en el menú inicio.
 
 ## Cómo funciona
-- `src/team.js` — el equipo: nombres, especialidades, aspecto y prompts.
+- `src/team.js` — el equipo: nombres, especialidades, aspecto, prompts y personalización.
+- `src/board.js` — el tablero de tareas: órdenes, pasos de cada agente y coste.
+- `src/docs.js` — lee los documentos adjuntos (PDF, Word, Excel, PowerPoint, RTF, HTML, texto).
+- `src/plans.js` — los planes de reparto de JARVIS: tareas, dependencias e informe final.
 - `src/main.js` — proceso principal de Electron: sesiones del equipo con el
   Claude Agent SDK (reanudables), capacitaciones, estado para el render y
   permiso del micrófono (solo audio).
@@ -168,6 +228,9 @@ crea automáticamente el **acceso directo en el escritorio** y en el menú inici
 - `src/renderer/office3d.js` — la oficina 3D ciberpunk (Three.js), los chibis y sus paseos.
 - `src/renderer/renderer.js` — versión 2.5D de respaldo si no hay WebGL.
 - `src/renderer/chat.js` — Centro de mando: agentes, órdenes, micro y voces.
+- `src/renderer/screen.js` — las pantallas de los agentes y el tablero del equipo.
+- `src/renderer/team-editor.js` — Personalizar equipo.
+- `src/renderer/attach.js` — adjuntar documentos (📎 y arrastrar y soltar).
 - `src/renderer/voice.js` — grabación del micrófono y cola de voces.
 - `src/renderer/voice-commands.js` — intérprete de órdenes habladas.
 - `src/preload.js` — puente seguro entre proceso principal y render.

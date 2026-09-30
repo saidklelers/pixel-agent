@@ -41,7 +41,8 @@ window.addEventListener('error', (e) => {
   console.error('CHAT-ERROR:', e.message, '@', (e.filename || '').split(/[\\/]/).pop() + ':' + e.lineno);
 });
 
-const team = new Map(); // id -> { id, name, role, from, emoji, aliases, look, skills, index, status, messages }
+const team = new Map(); // id -> { id, name, role, from, emoji, aliases, look, voice, skills, index, status, messages }
+let voices = []; // voces naturales disponibles (para Personalizar equipo)
 const selected = new Set(); // ids marcados para difusión
 let activeId = 'jarvis';
 
@@ -109,6 +110,7 @@ function updateTargetInfo() {
     targetInfoEl.appendChild(chip);
   }
   syncCanvas();
+  if (window.PixelAttach) window.PixelAttach.render();
 }
 
 function avatar(m, big) {
@@ -208,6 +210,18 @@ function renderProfile() {
     : busy ? (lv.busy && lv.label && lv.label !== 'disponible' ? `${lv.emoji || '⚙️'} ${lv.label}` : '⚙️ trabajando…')
       : 'libre · esperando órdenes';
   top.appendChild(main);
+  const screenBtn = document.createElement('button');
+  screenBtn.className = 'icon-btn';
+  screenBtn.textContent = '🖥️';
+  screenBtn.title = `Ver la pantalla de ${m.name}: qué está haciendo, sus tareas y lo que lleva gastado`;
+  screenBtn.addEventListener('click', () => window.PixelScreens && window.PixelScreens.open(m.id));
+  top.appendChild(screenBtn);
+  const editBtn = document.createElement('button');
+  editBtn.className = 'icon-btn';
+  editBtn.textContent = '✎';
+  editBtn.title = `Personalizar a ${m.name}: nombre, especialidad, colores y voz`;
+  editBtn.addEventListener('click', () => window.PixelEditor && window.PixelEditor.open(m.id));
+  top.appendChild(editBtn);
   const reset = document.createElement('button');
   reset.className = 'icon-btn';
   reset.textContent = '↺';
@@ -295,7 +309,7 @@ function renderConvo(forceBottom) {
   if (!m.messages.length) {
     const d = document.createElement('div');
     d.className = 'empty-convo';
-    d.innerHTML = `<div class="empty-icon">${m.emoji}</div>Habla o escribe a <b>${escapeHtml(m.name)}</b>.<br>` +
+    d.innerHTML = `<div class="empty-icon">${escapeHtml(m.emoji)}</div>Habla o escribe a <b>${escapeHtml(m.name)}</b>.<br>` +
       'Mantén <b>🎤</b> (o Ctrl+Espacio), o haz un clic y habla: se envía solo al callarte.';
     const sug = document.createElement('div');
     sug.className = 'suggestions';
@@ -355,7 +369,52 @@ function renderConvo(forceBottom) {
       }
       wrap.appendChild(meta);
       wrap.appendChild(bubble);
+      if (msg.docs && msg.docs.length) {
+        const dl = document.createElement('div');
+        dl.className = 'msg-docs';
+        for (const n of msg.docs) {
+          const c = document.createElement('span');
+          c.className = 'msg-doc';
+          c.textContent = '📎 ' + n;
+          dl.appendChild(c);
+        }
+        if (msg.delegate) {
+          const c = document.createElement('span');
+          c.className = 'msg-doc delegate';
+          c.textContent = '🧭 para repartir';
+          dl.appendChild(c);
+        }
+        wrap.appendChild(dl);
+      }
       convoEl.appendChild(wrap);
+      continue;
+    }
+    if (msg.role === 'plan') { convoEl.appendChild(planCard(msg.planId)); continue; }
+    if (msg.role === 'delegated') {
+      // una tarea que le ha asignado el líder
+      const from = team.get(msg.fromId) || {};
+      const d = document.createElement('div');
+      d.className = 'delegated';
+      d.style.setProperty('--who', (from.look && from.look.accent) || '#29f0ff');
+      const head = document.createElement('div');
+      head.className = 'delegated-head';
+      if (from.name) head.appendChild(avatar(from));
+      const b = document.createElement('b');
+      b.textContent = `${from.name || 'El líder'} te asigna`;
+      head.appendChild(b);
+      const pl = document.createElement('span');
+      pl.textContent = msg.plan && msg.plan.title ? `· ${msg.plan.title}` : '';
+      head.appendChild(pl);
+      const tm = document.createElement('span');
+      tm.className = 'time';
+      tm.textContent = hhmm(msg.at);
+      head.appendChild(tm);
+      d.appendChild(head);
+      const body = document.createElement('div');
+      body.className = 'delegated-text';
+      body.textContent = msg.text;
+      d.appendChild(body);
+      convoEl.appendChild(d);
       continue;
     }
     const div = document.createElement('div');
@@ -367,6 +426,113 @@ function renderConvo(forceBottom) {
   if (stick) convoEl.scrollTop = convoEl.scrollHeight;
   updateToBottom();
 }
+
+// ---- Planes de reparto (JARVIS reparte un requerimiento en el equipo) --------------
+
+const plansById = new Map();
+const PLAN_ST = {
+  espera: ['⏳', 'en espera'], enviada: ['▶', 'en marcha'], hecho: ['✅', 'hecha'],
+  fallida: ['⚠️', 'falló'], bloqueada: ['⛔', 'bloqueada'], cancelada: ['⊘', 'cancelada'],
+};
+
+function planCard(planId) {
+  const plan = plansById.get(planId);
+  const card = document.createElement('div');
+  card.className = 'plan-card';
+  card.dataset.planId = planId;
+  if (!plan) { card.textContent = '🧭 Plan de reparto'; return card; }
+  const boardTasks = (window.PIXEL_BOARD && window.PIXEL_BOARD.tasks) || [];
+  const done = plan.tasks.filter((t) => t.status === 'hecho').length;
+  const head = document.createElement('div');
+  head.className = 'plan-head';
+  const title = document.createElement('b');
+  title.textContent = `🧭 ${plan.title}`;
+  head.appendChild(title);
+  const st = document.createElement('span');
+  st.className = 'plan-st ' + plan.status.replace(' ', '-');
+  st.textContent = `${plan.status} · ${done}/${plan.tasks.length}`;
+  head.appendChild(st);
+  card.appendChild(head);
+  if (plan.summary) {
+    const sm = document.createElement('div');
+    sm.className = 'plan-sum';
+    sm.textContent = plan.summary;
+    card.appendChild(sm);
+  }
+  const prog = document.createElement('div');
+  prog.className = 'plan-prog';
+  const fill = document.createElement('i');
+  fill.style.width = `${Math.round((done / plan.tasks.length) * 100)}%`;
+  prog.appendChild(fill);
+  card.appendChild(prog);
+  const ol = document.createElement('ol');
+  ol.className = 'plan-tasks';
+  const byRef = new Map(plan.tasks.map((t) => [t.ref, t]));
+  for (const t of plan.tasks) {
+    const m = team.get(t.member) || { name: t.member };
+    const li = document.createElement('li');
+    li.className = t.status;
+    li.style.setProperty('--who', (m.look && m.look.accent) || '#29f0ff');
+    li.appendChild(avatar(m));
+    const body = document.createElement('div');
+    body.className = 'plan-task';
+    const top = document.createElement('div');
+    const nm = document.createElement('b');
+    nm.textContent = m.name;
+    top.appendChild(nm);
+    let [ic, label] = PLAN_ST[t.status] || ['•', t.status];
+    if (t.status === 'enviada') {
+      const bt = boardTasks.find((x) => x.id === t.boardTask);
+      if (bt && bt.status === 'pendiente') [ic, label] = ['⏳', 'en su cola'];
+      else if (bt && bt.status === 'en curso') [ic, label] = ['▶', 'trabajando'];
+    }
+    if (t.status === 'espera' && t.deps.length) label = `espera a ${t.deps.map((d) => (team.get((byRef.get(d) || {}).member) || {}).name || d).join(', ')}`;
+    const stl = document.createElement('span');
+    stl.className = 'plan-task-st';
+    stl.textContent = `${ic} ${label}`;
+    top.appendChild(stl);
+    body.appendChild(top);
+    const tx = document.createElement('div');
+    tx.className = 'plan-task-text';
+    tx.textContent = t.text;
+    body.appendChild(tx);
+    li.appendChild(body);
+    li.title = 'Ver su pantalla';
+    li.addEventListener('click', () => window.PixelScreens && window.PixelScreens.open(t.member, t.boardTask));
+    ol.appendChild(li);
+  }
+  card.appendChild(ol);
+  const act = document.createElement('div');
+  act.className = 'plan-actions';
+  const see = document.createElement('button');
+  see.className = 'chip-btn';
+  see.textContent = '📋 Ver pantallas del equipo';
+  see.addEventListener('click', () => window.PixelScreens && window.PixelScreens.openTeam());
+  act.appendChild(see);
+  if (plan.status === 'en marcha' && plan.tasks.some((t) => t.status === 'espera')) {
+    const cancel = document.createElement('button');
+    cancel.className = 'chip-btn danger';
+    cancel.textContent = '✕ Cancelar lo que falta';
+    cancel.title = 'Las tareas que aún no han empezado ya no se envían (las que están en marcha siguen)';
+    cancel.addEventListener('click', async () => {
+      if (!window.confirm(`¿Cancelar las tareas pendientes del plan «${plan.title}»?`)) return;
+      await window.planApi.cancel(plan.id);
+    });
+    act.appendChild(cancel);
+  }
+  card.appendChild(act);
+  return card;
+}
+
+// Si cambia el tablero o el plan, se rehacen solo sus tarjetas (sin mover la conversación).
+let planRefresh = 0;
+function refreshPlanCards() {
+  clearTimeout(planRefresh);
+  planRefresh = setTimeout(() => {
+    for (const card of convoEl.querySelectorAll('.plan-card')) card.replaceWith(planCard(card.dataset.planId));
+  }, 200);
+}
+window.addEventListener('pixel:board', refreshPlanCards);
 
 // "JARVIS está trabajando…" con lo que hace ahora, al final de la conversación.
 function renderTyping() {
@@ -411,11 +577,15 @@ async function refreshTeam() {
   if (!api) return;
   const data = await api.list();
   if (data.cwd && document.activeElement !== cwdEl) cwdEl.value = data.cwd;
+  if (Array.isArray(data.voices)) voices = data.voices;
   data.members.forEach((pm, index) => {
     const m = team.get(pm.id);
-    if (m) Object.assign(m, { skills: pm.skills });
+    // nombre, colores, voz… pueden haber cambiado (Personalizar equipo)
+    if (m) Object.assign(m, pm, { index, status: m.status, messages: m.messages });
     else team.set(pm.id, Object.assign({}, pm, { index, status: pm.busy ? 'busy' : 'live', messages: [] }));
   });
+  const helpTeam = document.querySelector('.help-team');
+  if (helpTeam) helpTeam.textContent = [...team.values()].map((m) => `${m.emoji} ${m.name} ${m.role}`).join(' · ');
   renderTeam();
   renderConvo();
 }
@@ -424,17 +594,25 @@ async function refreshTeam() {
 
 async function sendTo(ids, text, extra) {
   let sent = 0;
+  // documentos adjuntos (📎): van con esta orden
+  const A = window.PixelAttach;
+  if (A && A.busy()) { hint('📎 Espera un momento: todavía estoy leyendo el documento.', true); return 0; }
+  const docs = A ? A.ids() : [];
+  const opts = docs.length ? { docs, delegate: A.delegate() } : undefined;
+  const extra2 = docs.length ? Object.assign({}, extra, { docs: A.names(), delegate: opts.delegate }) : extra;
   for (const id of ids) {
     try {
-      const res = await api.send(id, text);
+      const res = await api.send(id, text, opts);
       if (res && res.ok === false) { push(id, 'error', res.error || 'no se pudo enviar'); continue; }
-      push(id, 'user', text, extra);
+      push(id, 'user', text || (opts && opts.delegate ? 'Reparte este requerimiento en el equipo.' : 'Te paso este documento.'), extra2);
+      if (res && res.queued) push(id, 'system', '⏳ En cola: empezará cuando termine lo que está haciendo (míralo en su 🖥️ pantalla).');
       setStatus(id, 'busy');
       sent += 1;
     } catch (e) {
       push(id, 'error', String(e && e.message ? e.message : e));
     }
   }
+  if (sent && docs.length) A.clear();
   return sent;
 }
 
@@ -543,6 +721,14 @@ async function runCommand(text, voice) {
 
 async function send() {
   const text = msgEl.value.trim();
+  const A = window.PixelAttach;
+  if (!text && A && (A.count() || A.busy())) {
+    // solo el documento: se lo mandamos al destino tal cual
+    const ids = targets();
+    const n = await sendTo(ids, '', { voice: false });
+    if (n) { msgEl.placeholder = 'Escribe una orden… o habla con 🎤'; hint(`📎 Enviado a ${namesOf(ids)}.`); }
+    return;
+  }
   if (!text) { msgEl.focus(); return; }
   msgEl.value = '';
   autoGrow();
@@ -1139,7 +1325,7 @@ if (api && api.onEvent) {
       case 'result': {
         const cost = typeof ev.cost === 'number' ? ` · $${ev.cost.toFixed(4)}` : '';
         push(ev.id, 'system', `✅ listo${cost}`);
-        setStatus(ev.id, 'live');
+        setStatus(ev.id, ev.busy ? 'busy' : 'live');
         break;
       }
       case 'trained':
@@ -1150,6 +1336,31 @@ if (api && api.onEvent) {
       case 'team':
         refreshTeam();
         break;
+      case 'user':
+        // mensajes que no has escrito tú: tareas del líder e informes de los planes
+        if (ev.from && ev.from !== ev.id) {
+          push(ev.id, 'delegated', ev.text, { fromId: ev.from, plan: ev.plan });
+          setStatus(ev.id, 'busy');
+        } else if (ev.plan) {
+          push(ev.id, 'system', `${ev.text}: el equipo ha terminado y ${m.name} lo está revisando.`);
+          setStatus(ev.id, 'busy');
+        }
+        break;
+      case 'plan': {
+        const first = !plansById.has(ev.plan.id);
+        const prev = plansById.get(ev.plan.id);
+        plansById.set(ev.plan.id, ev.plan);
+        if (first) {
+          push(ev.id, 'plan', '', { planId: ev.plan.id });
+          const to = [...new Set(ev.plan.tasks.map((t) => t.member))];
+          window.dispatchEvent(new CustomEvent('pixel:delegate', { detail: { from: ev.id, to } }));
+          hint(`🧭 ${m.name} ha repartido «${ev.plan.title}» entre ${namesOf(to)}.`);
+        } else refreshPlanCards();
+        if (prev && prev.status === 'en marcha' && ev.plan.status !== 'en marcha' && ev.plan.status !== 'cancelado') {
+          hint(ev.plan.status === 'terminado' ? `✅ Plan «${ev.plan.title}» terminado: ${m.name} lo está revisando.` : `⚠️ Plan «${ev.plan.title}» con problemas: ${m.name} lo está revisando.`, ev.plan.status !== 'terminado');
+        }
+        break;
+      }
       case 'error':
         push(ev.id, 'error', ev.text || 'error');
         setStatus(ev.id, 'error');
@@ -1162,8 +1373,17 @@ if (api && api.onEvent) {
   });
 }
 
+// Para las pantallas de los agentes (screen.js) y el editor del equipo (team-editor.js).
+window.PixelTeam = {
+  team, live, avatar, escapeHtml, renderMarkdown, hint, targets,
+  voices: () => voices,
+  refresh: refreshTeam,
+  focus: (id) => { focusMember(id, false); },
+};
+
 renderTtsBtn();
 renderHandsBtn();
+if (window.planApi) window.planApi.list().then((ps) => { for (const p of ps || []) plansById.set(p.id, p); }).catch(() => {});
 refreshTeam().then(() => {
   hint('🎯 Habla con JARVIS o di el nombre de otro miembro del equipo.');
   let handsSaved = false;

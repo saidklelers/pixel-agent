@@ -26,6 +26,7 @@
             <button id="handsBtn" class="icon-btn off" title="Manos libres: el micro escucha siempre y reconoce a quién le hablas por su nombre">👂</button>
             <button id="ttsBtn" class="icon-btn" title="Leer las respuestas en voz alta">🔊</button>
             <button id="skipBtn" class="icon-btn" title="Callar al equipo (Esc)">⏹</button>
+            <button id="boardBtn" class="icon-btn" title="Pantallas y tablero del equipo: qué hace cada uno, sus tareas y lo gastado">📋</button>
             <button id="settingsBtn" class="icon-btn" title="Ajustes: carpeta, micrófono y voz">⚙️</button>
             <button id="helpBtn" class="icon-btn" title="¿Qué puedo decir?">❔</button>
           </div>
@@ -53,7 +54,9 @@
               <button id="selNone" class="mini" title="Hablar solo con el seleccionado">Uno</button>
             </span>
           </div>
+          <div id="attachList" class="attach-list" hidden></div>
           <div class="input-shell">
+            <button id="attachBtn" class="attach" type="button" title="Adjuntar un documento (PDF, Word, Excel, PowerPoint, TXT…). También puedes arrastrarlo aquí.">📎</button>
             <button id="micBtn" class="mic" data-state="idle" title="Mantén pulsado para hablar (o Ctrl+Espacio). Un clic: habla y se envía solo al callarte.">
               <span class="mic-ring"></span>
               <span class="mic-icon">🎤</span>
@@ -91,6 +94,11 @@
             <span class="setting-help">Naturales: voces neuronales (necesitan internet). Del sistema: las de Windows.</span>
             <span class="field grow"><select id="ttsMode"><option value="natural">Naturales</option><option value="sistema">Del sistema</option></select></span>
           </label>
+          <div class="setting">
+            <span class="setting-title">🎨 Tu equipo</span>
+            <span class="setting-help">Cambia el nombre, la especialidad, los colores y la voz de cada miembro.</span>
+            <button id="editTeamBtn" class="chip-btn wide" type="button">🎨 Personalizar equipo…</button>
+          </div>
         </div>
 
         <div id="helpDrawer" class="drawer" hidden>
@@ -105,6 +113,9 @@
             <li><b>«Reinicia a TARS»</b><span>Olvida la conversación (pide confirmación).</span></li>
             <li><b>«EDITH» · «Silencio»</b><span>Elegirla como destino · callar las voces.</span></li>
             <li><b>Ratón</b><span>Clic en un avatar o en un personaje de la oficina para hablarle; Ctrl+clic para marcar varios.</span></li>
+            <li><b>📎 Requerimientos</b><span>Adjunta (o arrastra) un PDF, Word, Excel, TXT… y mándaselo a JARVIS: lo reparte en tareas para el equipo, en orden, y lo revisa cuando terminan.</span></li>
+            <li><b>🖥️ Su pantalla</b><span>Clic en la pantalla holográfica de su mesa (o 🖥️ en su ficha): ves en directo qué edita, qué ejecuta y cómo valida.</span></li>
+            <li><b>📋 Tablero</b><span>Clic en el tablero de la pared (o 📋): las 5 pantallas, las tareas de todos y lo gastado.</span></li>
           </ul>
           <div class="help-team">🧠 JARVIS arquitectura · 🎨 FRIDAY frontend · 🗄️ TARS backend · 🛡️ EDITH QA y seguridad · 🚀 KITT DevOps</div>
         </div>
@@ -113,6 +124,9 @@
     <script src="voice-commands.js"></script>
     <script src="voice.js"></script>
     <script src="chat.js"></script>
+    <script src="screen.js"></script>
+    <script src="team-editor.js"></script>
+    <script src="attach.js"></script>
     <!-- Oficina 3D (Three.js). Si no hay WebGL, carga sola la versión 2.5D (renderer.js).
          Si cambias el import map, actualiza su hash sha256 en la Content-Security-Policy de arriba. -->
     <script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.min.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script>

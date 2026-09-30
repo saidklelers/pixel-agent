@@ -496,53 +496,134 @@ function buildDoor() {
   strip(0.1, 0.016, DOOR.z + 0.68, 0.9, 0.006, 0.02, NEON.cyan, 2);
 }
 
-// Tablero holográfico (en lugar de pizarra): gráficas y diagrama que se mueven.
+// Tablero holográfico de la pared: las tareas reales del equipo (lo que llega
+// de screen.js en window.PIXEL_BOARD). Una fila por miembro con lo que hace,
+// lo que tiene en cola, lo que ha terminado y lo que lleva gastado.
+// Clic en el tablero: vista del equipo; clic en una fila: pantalla de ese miembro.
 let holoBoard = null;
+let holoBoardMesh = null;
+const BOARD_W = 1024, BOARD_H = 392, BOARD_TOP = 76, BOARD_ROW = 61;
+function boardData() {
+  const b = window.PIXEL_BOARD;
+  return b && Array.isArray(b.tasks) ? b : { tasks: [], spent: {} };
+}
+// Texto corto de un paso (para el tablero y las pantallas de las mesas).
+function shortStep(s) {
+  if (!s) return '';
+  const base = (p) => String(p || '').split(/[\\/]/).pop();
+  switch (s.kind) {
+    case 'edit': return 'editando ' + base(s.file);
+    case 'write': return 'creando ' + base(s.file);
+    case 'read': return 'leyendo ' + base(s.file);
+    case 'validate': return 'validando: ' + String(s.command || '').split('\n')[0];
+    case 'run': return '$ ' + String(s.command || '').split('\n')[0];
+    case 'search': return 'buscando "' + (s.pattern || '') + '"';
+    case 'web': return 'web: ' + (s.query || '');
+    case 'plan': return 'planificando (' + (s.todos || []).length + ' pasos)';
+    case 'delegate': return 'delegando: ' + (s.note || '');
+    case 'say': return String(s.text || '').replace(/\s+/g, ' ');
+    default: return s.tool || '';
+  }
+}
+function fitText(g, text, maxW) {
+  let t = String(text || '');
+  if (g.measureText(t).width <= maxW) return t;
+  while (t.length > 1 && g.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
 function drawHoloBoard(t) {
   const c = holoBoard.userData.canvas;
   const g = c.getContext('2d');
   const W = c.width, H = c.height;
+  const data = boardData();
   g.clearRect(0, 0, W, H);
-  g.fillStyle = 'rgba(4,20,32,0.85)'; g.fillRect(0, 0, W, H);
-  g.strokeStyle = 'rgba(41,240,255,0.18)'; g.lineWidth = 1;
-  for (let x = 0; x < W; x += 24) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
-  for (let y = 0; y < H; y += 24) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  g.fillStyle = 'rgba(4,20,32,0.86)'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(41,240,255,0.12)'; g.lineWidth = 1;
+  for (let x = 0; x < W; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   g.shadowColor = NEON.cyan; g.shadowBlur = 8;
   g.strokeStyle = NEON.cyan; g.lineWidth = 3;
   g.strokeRect(4, 4, W - 8, H - 8);
-  // barras
-  for (let i = 0; i < 8; i++) {
-    const v = 0.3 + 0.6 * ((Math.sin(t / 900 + i * 1.3) + 1) / 2);
-    g.fillStyle = i % 2 ? NEON.magenta : NEON.cyan;
-    g.fillRect(30 + i * 34, H - 30 - v * 150, 22, v * 150);
-  }
-  // línea de rendimiento
-  g.strokeStyle = NEON.yellow; g.lineWidth = 3; g.beginPath();
-  for (let x = 0; x < 260; x += 6) {
-    const y = 60 + Math.sin((x + t / 20) / 30) * 22 + Math.sin((x + t / 13) / 11) * 8;
-    if (x === 0) g.moveTo(340 + x, y); else g.lineTo(340 + x, y);
-  }
-  g.stroke();
-  // diagrama de nodos
-  g.strokeStyle = NEON.cyan; g.lineWidth = 2;
-  const nodes = [[380, 150], [470, 190], [560, 150], [470, 110]];
-  g.beginPath();
-  for (const [x, y] of nodes) { g.moveTo(470, 150); g.lineTo(x, y); }
-  g.stroke();
-  for (const [x, y] of nodes.concat([[470, 150]])) { g.fillStyle = NEON.magenta; g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill(); }
   g.shadowBlur = 0;
-  g.fillStyle = NEON.cyan; g.font = 'bold 18px Consolas, monospace';
-  g.fillText('SPRINT // ' + (72 + Math.round(Math.sin(t / 3000) * 6)) + '%', 340, 220);
+
+  // cabecera: totales
+  const pend = data.tasks.filter((x) => x.status === 'pendiente').length;
+  const run = data.tasks.filter((x) => x.status === 'en curso').length;
+  const done = data.tasks.filter((x) => x.status === 'hecho').length;
+  const total = Object.values(data.spent || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+  g.textBaseline = 'middle';
+  g.font = 'bold 28px Consolas, monospace';
+  g.fillStyle = NEON.cyan;
+  g.fillText('TABLERO // EQUIPO', 26, 40);
+  g.textAlign = 'right';
+  g.font = 'bold 22px Consolas, monospace';
+  g.fillStyle = NEON.yellow; g.fillText(`EN COLA ${pend}`, 640, 40);
+  g.fillStyle = NEON.cyan; g.fillText(`EN CURSO ${run}`, 790, 40);
+  g.fillStyle = NEON.green; g.fillText(`HECHAS ${done}`, 920, 40);
+  g.fillStyle = NEON.magenta; g.fillText('$' + total.toFixed(2), W - 22, 40);
+  g.textAlign = 'left';
+  g.strokeStyle = 'rgba(41,240,255,0.5)'; g.beginPath(); g.moveTo(20, 66); g.lineTo(W - 20, 66); g.stroke();
+
+  // una fila por miembro
+  [...display.values()].slice(0, 5).forEach((d, i) => {
+    const y = BOARD_TOP + i * BOARD_ROW + BOARD_ROW / 2;
+    const mine = data.tasks.filter((x) => x.member === d.id);
+    const cur = mine.find((x) => x.status === 'en curso');
+    const queued = mine.filter((x) => x.status === 'pendiente').length;
+    const fin = mine.filter((x) => x.status === 'hecho').length;
+    const acc = d.accent || NEON.cyan;
+    if (boardHover === i) { g.fillStyle = 'rgba(41,240,255,0.10)'; g.fillRect(12, y - BOARD_ROW / 2 + 3, W - 24, BOARD_ROW - 6); }
+    // luz de estado
+    g.fillStyle = cur ? (Math.floor(t / 400) % 2 ? NEON.yellow : '#b89a1c') : NEON.green;
+    g.beginPath(); g.arc(34, y, 7, 0, Math.PI * 2); g.fill();
+    g.font = 'bold 24px Consolas, monospace';
+    g.fillStyle = acc; g.shadowColor = acc; g.shadowBlur = 6;
+    g.fillText(fitText(g, d.name || '', 150), 52, y);
+    g.shadowBlur = 0;
+    // qué hace
+    g.font = '19px Consolas, monospace';
+    let what = 'libre';
+    let col = 'rgba(200,220,235,0.55)';
+    if (cur) {
+      const last = cur.steps && cur.steps[cur.steps.length - 1];
+      what = last ? shortStep(last) : 'pensando: ' + String(cur.text || '').split('\n')[0];
+      col = last && last.kind === 'validate' ? NEON.magenta : '#dff9ff';
+    }
+    g.fillStyle = col;
+    g.fillText(fitText(g, what, 440), 214, y);
+    // cola, hechas y gastado
+    g.textAlign = 'right';
+    g.font = 'bold 20px Consolas, monospace';
+    g.fillStyle = queued ? NEON.yellow : 'rgba(255,225,77,0.3)'; g.fillText(String(queued), 700, y);
+    g.fillStyle = fin ? NEON.green : 'rgba(57,255,158,0.3)'; g.fillText(String(fin), 845, y);
+    g.fillStyle = NEON.magenta; g.fillText('$' + (Number((data.spent || {})[d.id]) || 0).toFixed(2), W - 22, y);
+    g.textAlign = 'left';
+    g.strokeStyle = 'rgba(41,240,255,0.12)';
+    g.beginPath(); g.moveTo(20, y + BOARD_ROW / 2); g.lineTo(W - 20, y + BOARD_ROW / 2); g.stroke();
+  });
+  // barrido de escaneo
+  const sy = (t / 12) % H;
+  g.fillStyle = 'rgba(41,240,255,0.06)'; g.fillRect(6, sy, W - 12, 10);
   holoBoard.needsUpdate = true;
 }
+let boardHover = -1;
 function buildHoloBoard() {
-  holoBoard = canvasTex(640, 250, () => {});
-  const p = glowPanel(3.4, 1.3, holoBoard, 1.25, null, { transparent: true, opacity: 0.92, side: THREE.DoubleSide });
+  holoBoard = canvasTex(BOARD_W, BOARD_H, () => {});
+  const p = glowPanel(3.4, 1.3, holoBoard, 1.2, null, { transparent: true, opacity: 0.94, side: THREE.DoubleSide });
   p.position.set(2.55, 1.95, 0.05);
+  p.userData.board = true;
+  holoBoardMesh = p;
   drawHoloBoard(0);
   // proyector en el suelo del tablero
   box(1.0, 1.2, 0.02, 3.1, 0.04, 0.12, '#2a2d40', null, { metalness: 0.6 }).castShadow = false;
   strip(1.0, 1.24, 0.1, 3.1, 0.015, 0.02, NEON.cyan, 4);
+}
+// Fila del tablero bajo el ratón (uv del impacto) → índice de miembro, o -1.
+function boardRowAt(uv) {
+  if (!uv) return -1;
+  const y = (1 - uv.y) * BOARD_H;
+  const i = Math.floor((y - BOARD_TOP) / BOARD_ROW);
+  return i >= 0 && i < Math.min(5, display.size) ? i : -1;
 }
 
 // Letrero de neón en la pared del fondo.
@@ -782,7 +863,7 @@ function buildStation(d) {
   g.add(d.glow);
 
   // pantalla holográfica flotante (código cuando trabaja)
-  d.holoTex = canvasTex(256, 160, () => {});
+  d.holoTex = canvasTex(320, 200, () => {});
   d.holoPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.41), new THREE.MeshBasicMaterial({
     map: d.holoTex, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
     blending: THREE.AdditiveBlending, toneMapped: false, color: new THREE.Color(1.4, 1.4, 1.4),
@@ -790,6 +871,11 @@ function buildStation(d) {
   d.holoPanel.position.set(cx + 0.55, 1.15, cz - 0.05);
   d.holoPanel.rotation.y = Math.PI / 4;
   g.add(d.holoPanel);
+  // un poco más grande que la pantalla para que sea fácil pulsarla
+  d.screenHit = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.55), new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }));
+  d.screenHit.position.copy(d.holoPanel.position);
+  d.screenHit.rotation.copy(d.holoPanel.rotation);
+  g.add(d.screenHit);
   const emitter = mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.03, 16), mat('#2e3248', metal), cx + 0.55, top + 0.015, cz - 0.05, g);
   emitter.castShadow = false;
   d.holoLine = strip(cx + 0.545, top + 0.03, cz - 0.055, 0.01, 0.2, 0.01, accent, 3, g);
@@ -818,42 +904,87 @@ function buildStation(d) {
   g.add(ch);
 
   g.traverse((o) => { if (o.isMesh) o.userData.id = d.id; });
+  d.holoPanel.userData.screen = true;
+  d.screenHit.userData.screen = true;
   scene.add(g);
   d.station = g;
 }
 
-// Pantalla holográfica de cada mesa: código que avanza si trabaja; en reposo, su emblema.
+// Líneas que se ven en la pantalla de la mesa: lo que el agente está haciendo
+// de verdad (el código que escribe, el comando y su salida…).
+function screenLines(step) {
+  if (!step) return null;
+  const L = (text, color) => String(text || '').split('\n').map((x) => ({ text: x, color }));
+  const tail = (arr, n) => arr.slice(-n);
+  switch (step.kind) {
+    case 'edit': return L(step.after, '#7dffb0').map((l) => ({ text: '+ ' + l.text, color: l.color }));
+    case 'write': return L(step.code, '#7dffb0');
+    case 'run':
+    case 'validate': {
+      const out = step.output ? tail(L(step.output, step.ok === false ? '#ff7a8c' : '#cfe8ff'), 8) : [{ text: '▌', color: '#ffffff' }];
+      return L('$ ' + String(step.command || '').split('\n')[0], NEON.yellow).concat(out);
+    }
+    case 'plan': return (step.todos || []).map((x) => ({ text: (x.status === 'completed' ? '[x] ' : x.status === 'in_progress' ? '[>] ' : '[ ] ') + x.text, color: x.status === 'completed' ? '#7dffb0' : '#dff9ff' }));
+    case 'say': return L(step.text, '#dff9ff');
+    default: return step.output ? L(step.output, '#cfe8ff') : L(shortStep(step), '#dff9ff');
+  }
+}
+function currentStepOf(id) {
+  const cur = boardData().tasks.find((x) => x.member === id && x.status === 'en curso');
+  return cur && cur.steps && cur.steps.length ? cur.steps[cur.steps.length - 1] : null;
+}
+
+// Pantalla holográfica de cada mesa: lo que hace si trabaja; en reposo, su emblema.
 function drawHoloScreen(d, t) {
   const c = d.holoTex.userData.canvas;
   const g = c.getContext('2d');
   const W = c.width, H = c.height;
   const col = d.working ? (SCREEN_COLOR[d.state] || d.accent || NEON.cyan) : (d.accent || NEON.cyan);
   g.clearRect(0, 0, W, H);
-  g.fillStyle = 'rgba(10,20,40,0.55)';
+  g.fillStyle = 'rgba(10,20,40,0.6)';
   g.fillRect(0, 0, W, H);
   g.strokeStyle = col; g.lineWidth = 3; g.strokeRect(2, 2, W - 4, H - 4);
-  if (d.working) {
+  const step = d.busy ? currentStepOf(d.id) : null;
+  const lines = screenLines(step);
+  if (d.busy && lines && lines.length) {
+    // barra de título con lo que hace
+    g.fillStyle = col; g.fillRect(2, 2, W - 4, 22);
+    g.fillStyle = '#05070d'; g.font = 'bold 13px Consolas, monospace'; g.textBaseline = 'middle';
+    g.fillText(fitText(g, shortStep(step).toUpperCase(), W - 16), 8, 13);
+    g.font = '12px Consolas, monospace';
+    const max = 11;
+    const shown = lines.slice(0, max);
+    shown.forEach((l, i) => {
+      g.fillStyle = l.color;
+      g.fillText(fitText(g, l.text.replace(/\t/g, '  '), W - 18), 9, 36 + i * 14.5);
+    });
+    if (Math.floor(t / 500) % 2) { g.fillStyle = '#ffffff'; g.fillRect(9, Math.min(H - 12, 36 + shown.length * 14.5 - 6), 7, 11); }
+  } else if (d.working || d.busy) {
     const scroll = Math.floor(t / 180);
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 10; i++) {
       const seed = hash(d.id) + scroll + i;
-      const indent = (Math.abs(seed) % 3) * 14;
-      const len = 40 + (Math.abs(seed * 7) % 150);
-      g.fillStyle = i === 8 ? '#ffffff' : col;
-      g.globalAlpha = 0.5 + (i / 9) * 0.5;
-      g.fillRect(14 + indent, 12 + i * 16, Math.min(len, W - 30 - indent), 7);
+      const indent = (Math.abs(seed) % 3) * 16;
+      const len = 50 + (Math.abs(seed * 7) % 180);
+      g.fillStyle = i === 9 ? '#ffffff' : col;
+      g.globalAlpha = 0.5 + (i / 10) * 0.5;
+      g.fillRect(16 + indent, 14 + i * 16, Math.min(len, W - 34 - indent), 8);
     }
     g.globalAlpha = 1;
-    g.fillStyle = col; g.font = 'bold 14px Consolas, monospace';
-    g.fillText((d.label || '').slice(0, 26), 12, H - 8);
+    g.fillStyle = col; g.font = 'bold 15px Consolas, monospace'; g.textBaseline = 'alphabetic';
+    g.fillText(fitText(g, d.label || '', W - 24), 12, H - 10);
   } else {
-    g.fillStyle = col; g.font = 'bold 36px Consolas, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = col; g.font = 'bold 42px Consolas, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.globalAlpha = 0.6 + Math.sin(t / 600) * 0.2;
-    g.fillText(d.name || '', W / 2, H / 2 - 10);
-    g.font = '14px Consolas, monospace';
-    g.fillText('— STANDBY —', W / 2, H / 2 + 26);
+    g.fillText(d.name || '', W / 2, H / 2 - 16);
+    g.font = '15px Consolas, monospace';
+    g.fillText('— STANDBY —', W / 2, H / 2 + 22);
+    g.globalAlpha = 0.45;
+    g.font = '12px Consolas, monospace';
+    g.fillText('clic: ver su pantalla', W / 2, H - 18);
     g.globalAlpha = 1;
     g.textAlign = 'left';
   }
+  g.textBaseline = 'alphabetic';
   d.holoTex.needsUpdate = true;
 }
 
@@ -1112,9 +1243,39 @@ function wander(d) {
 }
 
 // Qué hace cada uno cuando no le llega trabajo.
+// Recados: cuando JARVIS reparte un plan, va a la mesa de cada compañero a
+// darle su tarea (aunque esté ocupado) y luego vuelve a la suya.
+function errand(d, t) {
+  if (d.mode === 'walk-intro') return;
+  // ya va a entregar una tarea (o vuelve del último recado): que siga
+  if (d.mode === 'walk' && d.goal && (d.goal.errand || (d.goal === 'seat' && !d.errands.length))) return;
+  if (d.mode === 'hang' && d.spot && d.spot.errand && t < d.until) return;
+  if (d.spot && d.spot.errand) { d.spot.takenBy = null; d.spot = null; }
+  const o = display.get(d.errands.shift());
+  if (o && o !== d) {
+    const s = visitSpotFor(o);
+    s.errand = true;
+    s.label = `📋 dándole su tarea a ${o.name}`;
+    goTo(d, s, true);
+    return;
+  }
+  d.errands = [];
+  if (d.mode === 'walk' && d.goal === 'seat') return;
+  if (d.mode === 'seated') { d.onErrand = false; return; }
+  goTo(d, 'seat', true);
+}
+window.addEventListener('pixel:delegate', (e) => {
+  const { from, to } = e.detail || {};
+  const d = display.get(from);
+  if (!d || !Array.isArray(to) || !to.length) return;
+  d.errands = to.filter((id) => id !== from && display.has(id));
+  d.onErrand = d.errands.length > 0;
+});
+
 function think(d, t) {
   const idle = !d.busy && (d.state === 'idle' || !d.state);
   if (d.mode === 'intro') return;
+  if (d.onErrand) { errand(d, t); return; }
   if (!idle) {
     // le ha llegado trabajo: a su mesa (corriendo)
     if (d.goal !== 'seat' || d.mode === 'hang' || d.mode === 'sofa') goTo(d, 'seat', true);
@@ -1136,6 +1297,7 @@ function think(d, t) {
 
 function arrive(d, t) {
   if (d.goal === 'seat') {
+    if (d.onErrand && !d.errands.length) d.onErrand = false;
     d.mode = 'seated';
     d.idleSince = 0;
     if (d.spot) { d.spot.takenBy = null; d.spot = null; }
@@ -1143,6 +1305,12 @@ function arrive(d, t) {
     d.spot = d.goal;
     d.mode = d.goal.anim === 'sit' ? 'sofa' : 'hang';
     d.until = t + 8000 + Math.random() * 12000;
+    if (d.goal.errand) {
+      // entrega la tarea: una hoja que vuela hacia el compañero
+      d.until = t + 2400;
+      const o = display.get(d.goal.visitOf);
+      if (o) for (let k = 0; k < 2; k++) emitAt(headWorld(o), '📋', null, { vy: 0.0006, max: 1600 });
+    }
   }
   d.goal = null;
   d.hurry = false;
@@ -1188,14 +1356,35 @@ function syncAgents(payload) {
         .concat(bfs({ i: 0, j: 3 }, { i: slot.ei, j: slot.ej }).slice(1).map((n) => nodePt(n.i, n.j)))
         .concat([{ x: NX[slot.ei], z: slot.seatZ }, { x: slot.seatX, z: slot.seatZ }]);
       d.goal = 'seat';
+      d.lookSig = JSON.stringify(a.look || null);
       display.set(a.id, d);
       buildStation(d);
       d.parts = makeCharacter(d);
       d.parts.root.visible = false;
       d.el = makeBubble(d);
     }
+    if (a.look && JSON.stringify(a.look) !== d.lookSig) restyle(d, a.look);
     Object.assign(d, { name: a.name || a.project, role: a.role || '', state: a.state, emoji: a.emoji, label: a.label, busy: !!a.busy, lastTime: a.lastTime });
   });
+}
+
+// Colores nuevos (Personalizar equipo): se rehacen su mesa y su personaje.
+function restyle(d, look) {
+  d.lookSig = JSON.stringify(look);
+  Object.assign(d, look);
+  const old = d.parts;
+  for (const o of [d.station, d.ring, old.root]) {
+    scene.remove(o);
+    o.traverse((x) => { if (x.geometry) x.geometry.dispose(); });
+  }
+  buildStation(d);
+  d.parts = makeCharacter(d);
+  d.parts.root.visible = old.root.visible;
+  d.parts.root.position.copy(old.root.position);
+  d.parts.root.rotation.copy(old.root.rotation);
+  d.holoAt = 0;
+  for (const m of holo.dots) scene.remove(m);
+  holo.dots = [];
 }
 if (window.office) window.office.onAgents(syncAgents);
 
@@ -1210,7 +1399,7 @@ const header = document.createElement('div');
 header.className = 'o3-header';
 header.innerHTML = '<span class="o3-logo">🌆</span><b>Pixel Office</b><span class="o3-pill" id="o3team"></span>' +
   '<span class="o3-pill" id="o3busy"></span><span class="o3-pill o3-speak" id="o3speak" hidden></span>' +
-  '<span class="o3-grow"></span><span class="o3-tip">arrastra para girar · rueda para acercar · clic en un personaje para hablarle</span>' +
+  '<span class="o3-grow"></span><span class="o3-tip">arrastra para girar · rueda para acercar · clic en un personaje para hablarle · en su pantalla para ver qué hace</span>' +
   '<span class="o3-clock" id="o3clock"></span>';
 overlay.appendChild(header);
 
@@ -1239,6 +1428,10 @@ function headWorld(d) {
 
 // Qué pone el bocadillo: lo que dice main.js, o su actividad si está paseando.
 function activityLabel(d) {
+  if (d.onErrand) {
+    if (d.mode === 'walk') return ['🧭', d.goal === 'seat' ? 'vuelvo a mi mesa' : 'repartiendo tareas'];
+    if (d.spot && d.spot.errand) { const [em, ...rest] = d.spot.label.split(' '); return [em, rest.join(' ')]; }
+  }
   if (d.busy || d.state !== 'idle') {
     if (d.mode === 'walk' && d.goal === 'seat' && d.hurry) return ['🏃', 'vuelvo a mi mesa'];
     return [d.emoji || '', d.label || ''];
@@ -1594,7 +1787,8 @@ function hitAt(e) {
   const hits = ray.intersectObjects(scene.children, true);
   for (const h of hits) {
     if (h.object.userData.cat) return { cat: true };
-    if (h.object.userData.id && display.has(h.object.userData.id)) return { id: h.object.userData.id };
+    if (h.object.userData.board) return { board: true, row: boardRowAt(h.uv) };
+    if (h.object.userData.id && display.has(h.object.userData.id)) return { id: h.object.userData.id, screen: !!h.object.userData.screen };
   }
   return null;
 }
@@ -1622,7 +1816,11 @@ canvas.addEventListener('pointermove', (e) => {
   }
   const h = hitAt(e);
   hoverId = h && h.id ? h.id : null;
+  boardHover = h && h.board ? h.row : -1;
   canvas.style.cursor = h ? 'pointer' : 'grab';
+  const who = h && h.id ? display.get(h.id) : h && h.board && h.row >= 0 ? [...display.values()][h.row] : null;
+  canvas.title = h && h.screen && who ? `Ver la pantalla de ${who.name}`
+    : h && h.board ? (who ? `Ver la pantalla de ${who.name}` : 'Ver el tablero del equipo') : '';
 });
 canvas.addEventListener('pointerup', (e) => {
   const d = drag;
@@ -1636,9 +1834,18 @@ canvas.addEventListener('pointerup', (e) => {
     if (cat.mode === 'sleep') cat.until = 0;
     return;
   }
+  if (h.board) {
+    const d2 = h.row >= 0 ? [...display.values()][h.row] : null;
+    window.dispatchEvent(new CustomEvent('pixel:board-open', { detail: { id: d2 ? d2.id : null } }));
+    return;
+  }
+  if (h.screen) {
+    window.dispatchEvent(new CustomEvent('pixel:screen', { detail: { id: h.id } }));
+    return;
+  }
   pick(h.id, e);
 });
-canvas.addEventListener('pointerleave', () => { hoverId = null; });
+canvas.addEventListener('pointerleave', () => { hoverId = null; boardHover = -1; });
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   orbit.dist = Math.max(11, Math.min(34, orbit.dist * (1 + Math.sign(e.deltaY) * 0.08)));
@@ -1680,7 +1887,23 @@ window.PixelOffice = Object.assign(window.PixelOffice || {}, {
     } else goTo(d, s);
     return true;
   },
-  state(id) { const d = display.get(id); return d ? { mode: d.mode, x: +d.x.toFixed(2), z: +d.z.toFixed(2), spot: d.spot && d.spot.id } : null; },
+  // posición en pantalla de la pantalla holográfica de su mesa / del tablero
+  screenAt(id) {
+    const d = display.get(id);
+    if (!d) return null;
+    const v = new THREE.Vector3();
+    d.holoPanel.getWorldPosition(v);
+    const r = canvas.getBoundingClientRect();
+    const p = toScreen(v.x, v.y, v.z);
+    return { x: r.left + p.x, y: r.top + p.y };
+  },
+  boardAt(row) {
+    const r = canvas.getBoundingClientRect();
+    const y = row == null ? 1.95 : 1.95 + 0.65 - ((BOARD_TOP + row * BOARD_ROW + BOARD_ROW / 2) / BOARD_H) * 1.3;
+    const p = toScreen(2.55, y, 0.06);
+    return { x: r.left + p.x, y: r.top + p.y };
+  },
+  state(id) { const d = display.get(id); return d ? { mode: d.mode, x: +d.x.toFixed(2), z: +d.z.toFixed(2), spot: d.spot && d.spot.id, goal: d.goal && (d.goal.id || d.goal), errands: d.onErrand ? d.errands.slice() : null } : null; },
 });
 
 // ---- Bucle ---------------------------------------------------------------------------
