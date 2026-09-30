@@ -10,6 +10,7 @@
     <div id="app">
       <div id="stageWrap">
         <canvas id="stage"></canvas>
+        <div id="overlay"></div>
       </div>
       <aside id="chat">
         <div class="chat-head">
@@ -94,9 +95,10 @@
         </div>
       </aside>
     </div>
-    <script src="renderer.js"></script>
     <script src="voice-commands.js"></script>
     <script src="voice.js"></script>
     <script src="chat.js"></script>
+    <!-- Oficina 3D (Three.js). Si no hay WebGL, carga sola la versión 2.5D (renderer.js). -->
+    <script type="module" src="office3d.js"></script>
   </body>
 </html>

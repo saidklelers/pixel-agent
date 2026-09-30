@@ -1,6 +1,6 @@
 # Pixel Office
 
-App de escritorio con una oficina pixel-art en **2.5D (isométrica)** donde
+App de escritorio con una oficina en **3D** (estilo acogedor, vista en diagonal) donde
 trabaja tu equipo de agentes de **Claude Code**, animados según lo que están
 haciendo de verdad (leyendo, escribiendo código, ejecutando comandos, buscando
 en la web…).
@@ -23,16 +23,21 @@ npm start
 El equipo entra por la puerta y cada uno va a su mesa. Necesitas tener Claude
 Code con sesión iniciada (ejecuta `claude` una vez en una terminal).
 
-## La oficina
-- Vista isométrica con puerta de entrada, ventanas, pizarra, reloj real, zona de
-  café, sofá y un gato que pasea (haz clic en él 🐱).
-- El cielo de las ventanas y la luz cambian con la hora real (día, atardecer y
-  noche, cuando se encienden los portátiles y los flexos).
-- Personajes chibi, cada uno con su estilo (TARS es un robot, KITT lleva el
-  escáner rojo) y un bocadillo con su nombre y lo que está haciendo.
-- En el centro, una mesa holográfica muestra quién está trabajando.
-- **Clic en un personaje** (o en su mesa): pasa a ser el destino de tus órdenes.
-  **Ctrl+clic** lo marca para difusión (varios a la vez).
+## La oficina (3D)
+- Oficina en **3D real** (Three.js): puerta de entrada, ventanas, pizarra,
+  reloj real, estantería, zona de café, sofá, mesa holográfica en el centro y
+  un gato que pasea (haz clic en él 🐱).
+- El equipo son **chibis en 3D**, cada uno con su estilo: JARVIS con traje y
+  auricular, FRIDAY con diadema, TARS es un robot con cara de pantalla, EDITH
+  con gafas y KITT con el visor y su escáner rojo. Entran por la puerta, se
+  sientan en su mesa, teclean, parpadean y mueven la boca al hablar.
+- El cielo y la luz siguen la hora real: de día entra el sol con sombras; de
+  noche se encienden los plafones, los flexos y las pantallas.
+- **Arrastra** para girar la cámara, **rueda** para acercar, **doble clic**
+  para volver a la vista inicial.
+- **Clic en un personaje** (o en su mesa/bocadillo): pasa a ser el destino.
+  **Ctrl+clic** lo marca para difusión.
+- Si el PC no tiene WebGL, se usa automáticamente la versión 2.5D.
 
 ## Tu equipo: 5 IAs fijas 🤖
 
@@ -135,7 +140,8 @@ crea automáticamente el **acceso directo en el escritorio** y en el menú inici
   permiso del micrófono (solo audio).
 - `src/stt-worker.js` — motor de voz: Whisper local en un proceso aparte
   (`utilityProcess`) para no congelar la ventana.
-- `src/renderer/renderer.js` — dibuja la oficina isométrica en un canvas.
+- `src/renderer/office3d.js` — la oficina 3D (Three.js) y los chibis.
+- `src/renderer/renderer.js` — versión 2.5D de respaldo si no hay WebGL.
 - `src/renderer/chat.js` — Centro de mando: agentes, órdenes, micro y voces.
 - `src/renderer/voice.js` — grabación del micrófono y cola de voces.
 - `src/renderer/voice-commands.js` — intérprete de órdenes habladas.
