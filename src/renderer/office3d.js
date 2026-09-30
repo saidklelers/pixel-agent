@@ -1277,8 +1277,10 @@ function think(d, t) {
   if (d.mode === 'intro') return;
   if (d.onErrand) { errand(d, t); return; }
   if (!idle) {
-    // le ha llegado trabajo: a su mesa (corriendo)
-    if (d.goal !== 'seat' || d.mode === 'hang' || d.mode === 'sofa') goTo(d, 'seat', true);
+    // le ha llegado trabajo: a su mesa (corriendo). Si ya está sentado, se queda
+    // quieto trabajando; si ya va hacia su silla, que siga.
+    if (d.mode === 'seated') { d.idleSince = 0; return; }
+    if (d.mode === 'hang' || d.mode === 'sofa' || d.goal !== 'seat') goTo(d, 'seat', true);
     d.idleSince = 0;
     return;
   }
