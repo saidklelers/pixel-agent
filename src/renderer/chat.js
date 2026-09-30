@@ -41,7 +41,8 @@ window.addEventListener('error', (e) => {
   console.error('CHAT-ERROR:', e.message, '@', (e.filename || '').split(/[\\/]/).pop() + ':' + e.lineno);
 });
 
-const team = new Map(); // id -> { id, name, role, from, emoji, aliases, look, skills, index, status, messages }
+const team = new Map(); // id -> { id, name, role, from, emoji, aliases, look, voice, skills, index, status, messages }
+let voices = []; // voces naturales disponibles (para Personalizar equipo)
 const selected = new Set(); // ids marcados para difusión
 let activeId = 'jarvis';
 
@@ -208,6 +209,18 @@ function renderProfile() {
     : busy ? (lv.busy && lv.label && lv.label !== 'disponible' ? `${lv.emoji || '⚙️'} ${lv.label}` : '⚙️ trabajando…')
       : 'libre · esperando órdenes';
   top.appendChild(main);
+  const screenBtn = document.createElement('button');
+  screenBtn.className = 'icon-btn';
+  screenBtn.textContent = '🖥️';
+  screenBtn.title = `Ver la pantalla de ${m.name}: qué está haciendo, sus tareas y lo que lleva gastado`;
+  screenBtn.addEventListener('click', () => window.PixelScreens && window.PixelScreens.open(m.id));
+  top.appendChild(screenBtn);
+  const editBtn = document.createElement('button');
+  editBtn.className = 'icon-btn';
+  editBtn.textContent = '✎';
+  editBtn.title = `Personalizar a ${m.name}: nombre, especialidad, colores y voz`;
+  editBtn.addEventListener('click', () => window.PixelEditor && window.PixelEditor.open(m.id));
+  top.appendChild(editBtn);
   const reset = document.createElement('button');
   reset.className = 'icon-btn';
   reset.textContent = '↺';
@@ -295,7 +308,7 @@ function renderConvo(forceBottom) {
   if (!m.messages.length) {
     const d = document.createElement('div');
     d.className = 'empty-convo';
-    d.innerHTML = `<div class="empty-icon">${m.emoji}</div>Habla o escribe a <b>${escapeHtml(m.name)}</b>.<br>` +
+    d.innerHTML = `<div class="empty-icon">${escapeHtml(m.emoji)}</div>Habla o escribe a <b>${escapeHtml(m.name)}</b>.<br>` +
       'Mantén <b>🎤</b> (o Ctrl+Espacio), o haz un clic y habla: se envía solo al callarte.';
     const sug = document.createElement('div');
     sug.className = 'suggestions';
@@ -411,11 +424,15 @@ async function refreshTeam() {
   if (!api) return;
   const data = await api.list();
   if (data.cwd && document.activeElement !== cwdEl) cwdEl.value = data.cwd;
+  if (Array.isArray(data.voices)) voices = data.voices;
   data.members.forEach((pm, index) => {
     const m = team.get(pm.id);
-    if (m) Object.assign(m, { skills: pm.skills });
+    // nombre, colores, voz… pueden haber cambiado (Personalizar equipo)
+    if (m) Object.assign(m, pm, { index, status: m.status, messages: m.messages });
     else team.set(pm.id, Object.assign({}, pm, { index, status: pm.busy ? 'busy' : 'live', messages: [] }));
   });
+  const helpTeam = document.querySelector('.help-team');
+  if (helpTeam) helpTeam.textContent = [...team.values()].map((m) => `${m.emoji} ${m.name} ${m.role}`).join(' · ');
   renderTeam();
   renderConvo();
 }
@@ -429,6 +446,7 @@ async function sendTo(ids, text, extra) {
       const res = await api.send(id, text);
       if (res && res.ok === false) { push(id, 'error', res.error || 'no se pudo enviar'); continue; }
       push(id, 'user', text, extra);
+      if (res && res.queued) push(id, 'system', '⏳ En cola: empezará cuando termine lo que está haciendo (míralo en su 🖥️ pantalla).');
       setStatus(id, 'busy');
       sent += 1;
     } catch (e) {
@@ -1139,7 +1157,7 @@ if (api && api.onEvent) {
       case 'result': {
         const cost = typeof ev.cost === 'number' ? ` · $${ev.cost.toFixed(4)}` : '';
         push(ev.id, 'system', `✅ listo${cost}`);
-        setStatus(ev.id, 'live');
+        setStatus(ev.id, ev.busy ? 'busy' : 'live');
         break;
       }
       case 'trained':
@@ -1161,6 +1179,14 @@ if (api && api.onEvent) {
     }
   });
 }
+
+// Para las pantallas de los agentes (screen.js) y el editor del equipo (team-editor.js).
+window.PixelTeam = {
+  team, live, avatar, escapeHtml, renderMarkdown, hint,
+  voices: () => voices,
+  refresh: refreshTeam,
+  focus: (id) => { focusMember(id, false); },
+};
 
 renderTtsBtn();
 renderHandsBtn();

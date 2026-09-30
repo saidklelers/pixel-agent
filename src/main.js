@@ -4,8 +4,9 @@ const { app, BrowserWindow, ipcMain, session, utilityProcess } = require('electr
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { TEAM, systemPromptFor, trainingPrompt, extractKnowledge } = require('./team');
+const { TEAM, VOICES, systemPromptFor, trainingPrompt, extractKnowledge, validateCustom, effectiveTeam } = require('./team');
 const { synthesize } = require('./tts');
+const { createBoard } = require('./board');
 
 const SNAPSHOT_MS = 700; // cada cuanto mandamos el estado del equipo al render
 
@@ -64,6 +65,7 @@ function labelForTool(tu, fallback) {
 
 const AGENT_MODEL = process.env.PIXEL_OFFICE_MODEL || 'claude-opus-4-8';
 const STORE_FILE = () => path.join(app.getPath('userData'), 'equipo.json');
+const BOARD_FILE = () => path.join(app.getPath('userData'), 'tareas.json');
 
 // Datos persistentes: carpeta de trabajo, sesiones y capacitaciones.
 let store = { cwd: '', members: {} };
@@ -76,10 +78,14 @@ function loadStore() {
     const rec = store.members[m.id] || (store.members[m.id] = {});
     rec.sessions = rec.sessions || {};
     rec.skills = Array.isArray(rec.skills) ? rec.skills : [];
+    rec.costs = rec.costs && typeof rec.costs === 'object' ? rec.costs : {}; // sessionId -> coste acumulado visto
+    if (rec.custom && typeof rec.custom !== 'object') delete rec.custom;
     // una capacitación que se cortó al cerrar la app queda como pendiente
     for (const k of rec.skills) if (k.status === 'aprendiendo') k.status = 'pendiente';
   }
   if (!store.cwd) store.cwd = os.homedir();
+  refreshMembers();
+  try { board.restore(JSON.parse(fs.readFileSync(BOARD_FILE(), 'utf8'))); } catch (_) { /* primera vez */ }
 }
 function saveStore() {
   try {
@@ -87,6 +93,41 @@ function saveStore() {
     fs.writeFileSync(STORE_FILE(), JSON.stringify(store, null, 2));
   } catch (e) {
     console.error('[equipo] no se pudo guardar:', e && e.message);
+  }
+}
+
+// El equipo tal como lo ha personalizado el usuario (nombre, voz, colores…).
+let members = effectiveTeam({});
+function refreshMembers() {
+  const customs = {};
+  for (const m of TEAM) customs[m.id] = (store.members[m.id] || {}).custom;
+  members = effectiveTeam(customs);
+}
+
+// ---- Tablero de tareas -----------------------------------------------------
+// Cada orden es una tarea con sus pasos (board.js). Se guarda en tareas.json y
+// se manda al render (tablero de la pared y pantalla de cada agente).
+
+const board = createBoard();
+let boardSaveTimer = null;
+let boardPushTimer = null;
+function boardChanged() {
+  if (!boardPushTimer) {
+    boardPushTimer = setTimeout(() => {
+      boardPushTimer = null;
+      if (win && !win.isDestroyed() && win.webContents) win.webContents.send('board', board.snapshot());
+    }, 250);
+  }
+  if (!boardSaveTimer) {
+    boardSaveTimer = setTimeout(() => { boardSaveTimer = null; saveBoard(); }, 2000);
+  }
+}
+function saveBoard() {
+  try {
+    fs.mkdirSync(path.dirname(BOARD_FILE()), { recursive: true });
+    fs.writeFileSync(BOARD_FILE(), JSON.stringify(board.serialize()));
+  } catch (e) {
+    console.error('[tablero] no se pudo guardar:', e && e.message);
   }
 }
 
@@ -140,13 +181,14 @@ function sendAgentEvent(payload) {
   if (win && !win.isDestroyed() && win.webContents) win.webContents.send('agent:event', payload);
 }
 
-function memberOf(id) { return TEAM.find((m) => m.id === id) || null; }
+function memberOf(id) { return members.find((m) => m.id === id) || null; }
 
 function publicMember(m) {
   const rec = store.members[m.id];
   const l = live.get(m.id);
   return {
     id: m.id, name: m.name, from: m.from, role: m.role, emoji: m.emoji, aliases: m.aliases, look: m.look,
+    voice: m.voice, prompt: m.prompt, customized: m.customized,
     skills: rec.skills.map((k) => ({ topic: k.topic, status: k.status || (k.notes ? 'aprendido' : 'pendiente') })),
     running: !!l.q, busy: l.busy,
   };
@@ -174,8 +216,11 @@ function handleSdkMessage(id, m) {
         else if (b.type === 'tool_use') {
           const st = TOOL_STATE[b.name] || 'working';
           const label = labelForTool({ name: b.name, input: b.input }, meta(st).label);
-          setState(id, st, label);
+          const step = board.tool(id, b.id, b.name, b.input);
+          // los comandos de tests/lint/build: está validando
+          setState(id, st, step && step.kind === 'validate' ? label.replace(meta(st).label, 'validando') : label);
           sendAgentEvent({ id, kind: 'tool', name: b.name, label });
+          boardChanged();
         }
       }
       if (texts.length) {
@@ -189,15 +234,54 @@ function handleSdkMessage(id, m) {
           return;
         }
         setState(id, 'talking', null, text);
+        board.say(id, text);
+        boardChanged();
         sendAgentEvent({ id, kind: 'assistant', text, training: !!(l && l.training) });
       }
     }
+  } else if (m.type === 'user') {
+    // resultados de las herramientas (salida de comandos, archivos leídos…)
+    const content = m.message && m.message.content;
+    if (Array.isArray(content)) {
+      let any = false;
+      for (const b of content) {
+        if (b && b.type === 'tool_result' && board.toolResult(b.tool_use_id, b.content, b.is_error)) any = true;
+      }
+      if (any) boardChanged();
+    }
   } else if (m.type === 'result') {
-    if (l) l.busy = false;
-    setState(id, 'idle', 'disponible');
+    const cost = turnCost(id, m);
+    const { next } = board.finish(id, {
+      ok: m.subtype === 'success' && !m.is_error, cost, turns: m.num_turns, durationMs: m.duration_ms,
+      text: m.result || (Array.isArray(m.errors) ? m.errors.join('\n') : ''),
+    });
+    boardChanged();
+    if (l) l.busy = board.busy(id);
+    if (next) setState(id, 'prompt', null, next.text);
+    else setState(id, 'idle', 'disponible');
     if (l && l.training) finishTraining(id, m.result || '');
-    sendAgentEvent({ id, kind: 'result', subtype: m.subtype, cost: m.total_cost_usd, text: m.result });
+    sendAgentEvent({ id, kind: 'result', subtype: m.subtype, cost, text: m.result, busy: !!(l && l.busy) });
+    // cambios de personalización pendientes: se aplican al quedar libre
+    if (l && l.restartAfter && !l.busy && !l.training) { l.restartAfter = false; stopMember(id); }
   }
+}
+
+// Coste del turno. El SDK da el acumulado de la sesión; guardamos el último
+// visto por sesión para restar (si el proceso empezó de cero, el total es menor).
+function turnCost(id, m) {
+  const total = Number(m.total_cost_usd);
+  if (!Number.isFinite(total) || total < 0) return 0;
+  const l = live.get(id);
+  const rec = store.members[id];
+  const key = m.session_id || (l && l.cwd) || '-';
+  const seen = l && l.costSeen != null ? l.costSeen : (rec.costs[key] || 0);
+  const cost = total >= seen ? total - seen : total;
+  if (l) l.costSeen = total;
+  rec.costs[key] = total;
+  const keys = Object.keys(rec.costs);
+  if (keys.length > 30) delete rec.costs[keys[0]];
+  saveStore();
+  return cost;
 }
 
 // Arranca (o reanuda) la sesión de un miembro en la carpeta de trabajo actual.
@@ -216,11 +300,11 @@ async function ensureRunning(id) {
     model: AGENT_MODEL,
     permissionMode: 'bypassPermissions',
     abortController: abort,
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(member, rec.skills) },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPromptFor(member, rec.skills, members) },
   };
   if (rec.sessions[cwd]) options.resume = rec.sessions[cwd];
   const q = query({ prompt: input.iterable, options });
-  Object.assign(l, { q, input, abort, cwd });
+  Object.assign(l, { q, input, abort, cwd, costSeen: null, restartAfter: false });
   sendAgentEvent({ id, kind: 'spawned', cwd, resumed: !!options.resume });
 
   (async () => {
@@ -237,6 +321,8 @@ async function ensureRunning(id) {
       if (!abort.signal.aborted) sendAgentEvent({ id, kind: 'error', auth, text: auth ? msg + ' — ' + AUTH_HELP : msg });
     } finally {
       if (l.q === q) {
+        board.closeAll(id, 'La sesión se cerró antes de terminar.');
+        boardChanged();
         Object.assign(l, { q: null, input: null, abort: null, busy: false });
         if (l.training) { l.training = null; markTraining(id, 'pendiente'); }
         setState(id, 'idle', 'disponible');
@@ -246,7 +332,7 @@ async function ensureRunning(id) {
   })();
 }
 
-async function sendToMember(id, text) {
+async function sendToMember(id, text, kind) {
   try {
     await ensureRunning(id);
   } catch (e) {
@@ -255,16 +341,20 @@ async function sendToMember(id, text) {
     return { ok: false, error: msg };
   }
   const l = live.get(id);
+  const wasBusy = board.busy(id);
+  const task = board.add(id, kind === 'capacitacion' ? `🎓 Capacitarse en «${l.trainingTopic || ''}»` : text, { kind: kind || 'orden' });
+  boardChanged();
   l.busy = true;
-  setState(id, 'prompt', null, text);
+  if (!wasBusy) setState(id, 'prompt', null, text);
   l.input.push(userMsg(text));
-  sendAgentEvent({ id, kind: 'user', text });
-  return { ok: true };
+  sendAgentEvent({ id, kind: 'user', text, queued: wasBusy });
+  return { ok: true, task: task.id, queued: wasBusy };
 }
 
 async function interruptMember(id) {
   const l = live.get(id);
   if (l && l.q && typeof l.q.interrupt === 'function') {
+    if (board.markInterrupted(id)) boardChanged();
     try { await l.q.interrupt(); } catch (_) { /* noop */ }
   }
   return { ok: true };
@@ -310,7 +400,9 @@ function finishTraining(id, resultText) {
   l.training = null;
   // Reiniciamos la sesión para que el nuevo conocimiento entre en su prompt
   // de sistema; la conversación se reanuda igual (misma sesión guardada).
-  stopMember(id);
+  // Si ya tiene otra orden en marcha, se reinicia cuando la termine.
+  if (board.busy(id)) l.restartAfter = true;
+  else stopMember(id);
 }
 
 async function trainMember(id, topic) {
@@ -325,7 +417,7 @@ async function trainMember(id, topic) {
   k.status = 'aprendiendo';
   saveStore();
   l.trainingTopic = t;
-  const res = await sendToMember(id, trainingPrompt(t));
+  const res = await sendToMember(id, trainingPrompt(t), 'capacitacion');
   if (!res.ok) { k.status = 'pendiente'; saveStore(); return res; }
   l.training = { topic: t };
   setState(id, 'reading', `capacitándose: ${t}`);
@@ -358,7 +450,7 @@ function setCwd(cwd) {
 function pushSnapshot() {
   if (!win || win.isDestroyed() || !win.webContents) return;
   const now = Date.now();
-  const agents = TEAM.map((m) => {
+  const agents = members.map((m) => {
     const l = live.get(m.id);
     return {
       id: m.id, name: m.name, role: m.role, look: m.look, project: m.name,
@@ -368,13 +460,44 @@ function pushSnapshot() {
   win.webContents.send('agents', { agents, now });
 }
 
-ipcMain.handle('team:list', () => ({ cwd: store.cwd, members: TEAM.map(publicMember) }));
+ipcMain.handle('team:list', () => ({ cwd: store.cwd, members: members.map(publicMember), voices: VOICES }));
 ipcMain.handle('team:send', (_e, { id, text }) => sendToMember(id, text));
 ipcMain.handle('team:interrupt', (_e, { id }) => interruptMember(id));
 ipcMain.handle('team:reset', (_e, { id }) => resetMember(id));
 ipcMain.handle('team:train', (_e, { id, topic }) => trainMember(id, topic));
 ipcMain.handle('team:forget', (_e, { id, topic }) => forgetSkill(id, topic));
 ipcMain.handle('team:cwd', (_e, { cwd }) => setCwd(cwd));
+ipcMain.handle('team:customize', (_e, { id, custom } = {}) => customizeMember(id, custom));
+ipcMain.handle('board:get', () => board.snapshot());
+ipcMain.handle('board:clear', (_e, { id } = {}) => { board.clearDone(id || null); boardChanged(); return { ok: true }; });
+
+// Personalizar a un miembro (custom = null lo devuelve a su versión original).
+function customizeMember(id, custom) {
+  const rec = store.members[id];
+  if (!rec || !memberOf(id)) return { ok: false, error: 'ese agente no existe' };
+  if (custom == null) {
+    delete rec.custom;
+  } else {
+    const others = members.filter((m) => m.id !== id).map((m) => m.name);
+    const v = validateCustom(custom, others);
+    if (!v.ok) return v;
+    rec.custom = v.custom;
+  }
+  saveStore();
+  refreshMembers();
+  // El prompt de sistema cambia: la sesión se reinicia (retomando la
+  // conversación) en cuanto el miembro esté libre. Y los compañeros también,
+  // porque el prompt de todos incluye los nombres del equipo.
+  for (const m of TEAM) {
+    const l = live.get(m.id);
+    if (!l || !l.q) continue;
+    if (l.busy || l.training) l.restartAfter = true;
+    else stopMember(m.id);
+  }
+  if (stt && !stt.replaced) stt.proc.postMessage({ type: 'names', names: members.map((m) => m.name) });
+  sendAgentEvent({ id, kind: 'team' });
+  return { ok: true, member: publicMember(memberOf(id)) };
+}
 
 // ---- Voz: transcripción local con Whisper -----------------------------------
 // El audio del micrófono llega del render (Float32Array, 16 kHz mono) y se
@@ -443,7 +566,7 @@ function loadModel(s) {
     type: 'load',
     model: s.model,
     cacheDir: path.join(app.getPath('userData'), 'modelos-voz'),
-    names: TEAM.map((m) => m.name), // pista para que Whisper escriba bien los nombres
+    names: members.map((m) => m.name), // pista para que Whisper escriba bien los nombres
   });
 }
 
@@ -489,10 +612,17 @@ ipcMain.handle('voice:transcribe', (_e, { audio, quality } = {}) => transcribe(a
 
 // Voz natural de un miembro del equipo: devuelve el MP3 (o un error, y el
 // render usa entonces la voz del sistema).
-ipcMain.handle('tts:speak', async (_e, { id, text } = {}) => {
+ipcMain.handle('tts:speak', async (_e, { id, text, voice } = {}) => {
   const member = memberOf(id);
+  // voice: prueba de una voz desde «Personalizar equipo» (sin guardar)
+  let v = member && member.voice;
+  if (voice) {
+    const t = validateCustom({ voice }, []);
+    if (!t.ok) return { error: t.error };
+    v = (effectiveTeam({ [id]: t.custom }).find((m) => m.id === id) || {}).voice || t.custom.voice;
+  }
   try {
-    const audio = await synthesize(text, member && member.voice);
+    const audio = await synthesize(text, v);
     return { audio: new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength) };
   } catch (e) {
     console.error('[voz natural]', e && e.message ? e.message : e);
@@ -557,6 +687,7 @@ function createWindow() {
 
   win.webContents.on('did-finish-load', () => {
     pushSnapshot();
+    win.webContents.send('board', board.snapshot());
   });
 }
 
@@ -570,6 +701,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   app.isQuitting = true;
   for (const m of TEAM) stopMember(m.id);
+  saveBoard();
   if (stt) { try { stt.proc.kill(); } catch (_) { /* noop */ } }
 });
 

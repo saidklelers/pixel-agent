@@ -140,6 +140,12 @@ port.on('message', (e) => {
     return;
   }
 
+  // el usuario ha renombrado a alguien del equipo: nueva pista de nombres
+  if (msg.type === 'names') {
+    if (config && Array.isArray(msg.names)) config.names = msg.names.map(String);
+    return;
+  }
+
   if (msg.type === 'transcribe') {
     const audio = msg.audio instanceof Float32Array ? msg.audio : new Float32Array(msg.audio || []);
     chain = chain.then(async () => {
